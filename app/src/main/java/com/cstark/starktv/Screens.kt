@@ -33,6 +33,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -53,6 +54,9 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 // ---------------------------------------------------------------- sign in
 
@@ -308,6 +312,8 @@ class HomeData {
     val discoverTab: Int get() = sections.size + 1
     val settingsTab: Int get() = sections.size + 2
     val listState = LazyListState()
+    /** Time of the last successful loadHome (0 = not yet); MainScreen copies it into prefs.lastSync. */
+    var lastSync by mutableLongStateOf(0L)
 
     fun reset() {
         sections = emptyList()
@@ -373,6 +379,7 @@ suspend fun loadHome(api: PlexApi, d: HomeData) {
 
         d.rows = rows
         d.error = null
+        d.lastSync = System.currentTimeMillis()
     } catch (e: Exception) {
         if (d.rows == null) d.error = e.message ?: "Couldn't load your library"
     }
@@ -405,6 +412,7 @@ fun MainScreen(
             loadHome(api, home)
         }
     }
+    LaunchedEffect(home.lastSync) { if (home.lastSync > 0) prefs.lastSync = home.lastSync }
     BackHandler(enabled = home.tab != 0) { home.tab = 0 }
     LaunchedEffect(home.tab, home.rows != null, refresh) {
         if (home.tab == home.discoverTab && home.rows != null && home.discover == null) {
@@ -504,6 +512,17 @@ fun SettingsScreen(
             Chip("Play opening", onClick = onPreviewIntro)
         }
         Chip("Sync from Plex now", onClick = onSync)
+        val synced = prefs.lastSync
+        Text(
+            "Last synced: " + if (synced > 0) SimpleDateFormat("MMM d, h:mm a", Locale.getDefault()).format(Date(synced)) else "never",
+            fontSize = 14.sp,
+            color = Pal.Dim,
+        )
+        Text(
+            "Auto-syncs when the app opens, whenever you come back to this screen from a title or the player, and every 90 seconds while it's open.",
+            fontSize = 14.sp,
+            color = Pal.Dim,
+        )
         val scope = rememberCoroutineScope()
         if (Updater.newBuild > 0) {
             Chip("Install update (build ${Updater.newBuild})", selected = true) { scope.launch { Updater.install(ctx) } }

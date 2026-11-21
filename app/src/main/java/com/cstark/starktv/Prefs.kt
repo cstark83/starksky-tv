@@ -1,6 +1,7 @@
 package com.cstark.starktv
 
 import android.content.Context
+import androidx.compose.runtime.mutableLongStateOf
 import java.util.UUID
 
 class Prefs(ctx: Context) {
@@ -68,6 +69,14 @@ class Prefs(ctx: Context) {
         get() = sp.getFloat("wlon", -85.488f).toDouble()
         set(v) { sp.edit().putFloat("wlon", v.toFloat()).apply() }
 
+    // Kept in Compose state too, so the Settings line updates the moment a sync finishes.
+    private val lastSyncState = mutableLongStateOf(sp.getLong("lastsync", 0L))
+
+    /** When the home data last loaded successfully from Plex (ms since epoch, 0 = never). */
+    var lastSync: Long
+        get() = lastSyncState.longValue
+        set(v) { lastSyncState.longValue = v; sp.edit().putLong("lastsync", v).apply() }
+
     var weatherName: String
         get() = sp.getString("wname", "Columbia City") ?: "Columbia City"
         set(v) { sp.edit().putString("wname", v).apply() }
@@ -78,6 +87,7 @@ class Prefs(ctx: Context) {
         val subs = subsDefault
         val cel = celsius
         val daily = introDaily
+        lastSyncState.longValue = 0L
         sp.edit().clear().putString("cid", cid).putInt("intro", style).putBoolean("subs", subs).putBoolean("celsius", cel).putBoolean("introDaily", daily).apply()
     }
 }

@@ -34,6 +34,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -43,6 +44,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -327,6 +329,13 @@ fun HomeScreen(
         if (home.selected == null) home.selected = rows.first().items.first()
         runCatching { first.requestFocus() }
     }
+    // Kept in HomeData (not rememberLazyListState) so the scroll position survives opening a title.
+    val listState = home.listState
+    var focusedRow by remember { mutableIntStateOf(-1) }
+    // Snap the focused row's header to the top of the list area.
+    LaunchedEffect(focusedRow) {
+        if (focusedRow >= 0) listState.animateScrollToItem(focusedRow)
+    }
 
     Column(Modifier.fillMaxSize()) {
         Box(
@@ -360,44 +369,52 @@ fun HomeScreen(
                 Box(Modifier.align(Alignment.BottomEnd)) { NowPlayingPill(onNowPlaying) }
             }
         }
-        LazyColumn(
-            modifier = Modifier.weight(0.54f),
-            state = home.listState,
-            contentPadding = PaddingValues(bottom = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(20.dp),
-        ) {
-            itemsIndexed(rows) { ri, row ->
-                Column {
-                    Text(
-                        row.title,
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Light,
-                        letterSpacing = 1.sp,
-                        modifier = Modifier.padding(start = 48.dp, bottom = 10.dp),
-                    )
-                    LazyRow(
-                        contentPadding = PaddingValues(horizontal = 48.dp),
-                        horizontalArrangement = Arrangement.spacedBy(16.dp),
-                    ) {
-                        itemsIndexed(row.items) { ii, item ->
-                            PosterCard(
-                                api,
-                                item,
-                                row.landscape,
-                                if (ri == 0 && ii == 0) first else null,
-                                onFocus = {
-                                    home.selected = item
-                                    home.selectedDeck = row.playDirect
-                                    home.selectedExternal = row.external
-                                },
-                                onLongPress = if (row.external) null else ({ menu = item to row.playDirect }),
-                            ) {
-                                if (row.external) openExternal(item) else if (row.playDirect) onPlay(item) else onDetail(item.showKey)
+        Box(Modifier.weight(0.54f).fillMaxWidth()) {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize().clipToBounds(),
+                state = listState,
+                contentPadding = PaddingValues(top = 12.dp, bottom = 48.dp),
+                verticalArrangement = Arrangement.spacedBy(20.dp),
+            ) {
+                itemsIndexed(rows) { ri, row ->
+                    Column {
+                        Text(
+                            row.title,
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Light,
+                            letterSpacing = 1.sp,
+                            modifier = Modifier.padding(start = 48.dp, bottom = 10.dp),
+                        )
+                        LazyRow(
+                            contentPadding = PaddingValues(horizontal = 48.dp),
+                            horizontalArrangement = Arrangement.spacedBy(16.dp),
+                        ) {
+                            itemsIndexed(row.items) { ii, item ->
+                                PosterCard(
+                                    api,
+                                    item,
+                                    row.landscape,
+                                    if (ri == 0 && ii == 0) first else null,
+                                    onFocus = {
+                                        home.selected = item
+                                        home.selectedDeck = row.playDirect
+                                        home.selectedExternal = row.external
+                                        focusedRow = ri
+                                    },
+                                    onLongPress = if (row.external) null else ({ menu = item to row.playDirect }),
+                                ) {
+                                    if (row.external) openExternal(item) else if (row.playDirect) onPlay(item) else onDetail(item.showKey)
+                                }
                             }
                         }
                     }
                 }
             }
+            // Soft top edge so a row sliding out never shows through over the hero.
+            Box(
+                Modifier.fillMaxWidth().height(24.dp)
+                    .background(Brush.verticalGradient(listOf(Color(0xFF0A0A0A), Color.Transparent))),
+            )
         }
     }
     val m = menu
