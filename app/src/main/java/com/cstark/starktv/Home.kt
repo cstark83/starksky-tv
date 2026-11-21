@@ -328,70 +328,71 @@ fun HomeScreen(
         runCatching { first.requestFocus() }
     }
 
-    LazyColumn(
-        state = home.listState,
-        contentPadding = PaddingValues(bottom = 48.dp),
-        verticalArrangement = Arrangement.spacedBy(20.dp),
-    ) {
-        item {
-            Box(
-                Modifier.fillParentMaxHeight(0.44f).fillMaxWidth().padding(horizontal = 48.dp),
-                contentAlignment = Alignment.BottomStart,
-            ) {
-                val sel = home.selected
-                if (sel != null) {
-                    HeroInfo(
-                        sel,
-                        home.selectedDeck,
-                        home.selectedExternal,
-                        onPlay,
-                        onDetail,
-                        onMarkWatched = {
-                            scope.launch {
-                                api.setWatched(sel.ratingKey, true)
-                                loadHome(api, home)
-                            }
-                        },
-                        onRemove = {
-                            scope.launch {
-                                api.hideFromContinue(sel.ratingKey)
-                                loadHome(api, home)
-                            }
-                        },
-                        onExternal = { openExternal(sel) },
-                    )
-                }
-                if (NowPlaying.active) {
-                    Box(Modifier.align(Alignment.BottomEnd)) { NowPlayingPill(onNowPlaying) }
-                }
+    Column(Modifier.fillMaxSize()) {
+        Box(
+            Modifier.fillMaxWidth().weight(0.42f).padding(horizontal = 48.dp),
+            contentAlignment = Alignment.BottomStart,
+        ) {
+            val sel = home.selected
+            if (sel != null) {
+                HeroInfo(
+                    sel,
+                    home.selectedDeck,
+                    home.selectedExternal,
+                    onPlay,
+                    onDetail,
+                    onMarkWatched = {
+                        scope.launch {
+                            api.setWatched(sel.ratingKey, true)
+                            loadHome(api, home)
+                        }
+                    },
+                    onRemove = {
+                        scope.launch {
+                            api.hideFromContinue(sel.ratingKey)
+                            loadHome(api, home)
+                        }
+                    },
+                    onExternal = { openExternal(sel) },
+                )
+            }
+            if (NowPlaying.active) {
+                Box(Modifier.align(Alignment.BottomEnd)) { NowPlayingPill(onNowPlaying) }
             }
         }
-        itemsIndexed(rows) { ri, row ->
-            Column {
-                Text(
-                    row.title,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Light,
-                    letterSpacing = 1.sp,
-                    modifier = Modifier.padding(start = 48.dp, bottom = 10.dp),
-                )
-                LazyRow(
-                    contentPadding = PaddingValues(horizontal = 48.dp),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp),
-                ) {
-                    itemsIndexed(row.items) { ii, item ->
-                        PosterCard(
-                            api,
-                            item,
-                            row.landscape,
-                            if (ri == 0 && ii == 0) first else null,
-                            onFocus = {
-                                home.selected = item
-                                home.selectedDeck = row.playDirect
-                                home.selectedExternal = row.external
-                            },
-                        ) {
-                            if (row.external) openExternal(item) else if (row.playDirect) onPlay(item) else onDetail(item.showKey)
+        LazyColumn(
+            modifier = Modifier.weight(0.58f),
+            state = home.listState,
+            contentPadding = PaddingValues(bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(20.dp),
+        ) {
+            itemsIndexed(rows) { ri, row ->
+                Column {
+                    Text(
+                        row.title,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Light,
+                        letterSpacing = 1.sp,
+                        modifier = Modifier.padding(start = 48.dp, bottom = 10.dp),
+                    )
+                    LazyRow(
+                        contentPadding = PaddingValues(horizontal = 48.dp),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    ) {
+                        itemsIndexed(row.items) { ii, item ->
+                            PosterCard(
+                                api,
+                                item,
+                                row.landscape,
+                                if (ri == 0 && ii == 0) first else null,
+                                onFocus = {
+                                    home.selected = item
+                                    home.selectedDeck = row.playDirect
+                                    home.selectedExternal = row.external
+                                },
+                            ) {
+                                if (row.external) openExternal(item) else if (row.playDirect) onPlay(item) else onDetail(item.showKey)
+                            }
                         }
                     }
                 }
