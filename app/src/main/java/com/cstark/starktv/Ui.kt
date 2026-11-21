@@ -97,7 +97,13 @@ fun Chip(
                 .padding(horizontal = if (compact) 14.dp else 20.dp, vertical = if (compact) 8.dp else 10.dp),
             contentAlignment = Alignment.Center,
         ) {
-            Text(text, color = if (f || selected) Color.Black else Color.White, fontSize = if (compact) 14.sp else 16.sp)
+            Text(
+                text,
+                color = if (f || selected) Color.Black else Color.White,
+                fontSize = if (compact) 14.sp else 16.sp,
+                maxLines = 1,
+                softWrap = false,
+            )
         }
     }
 }
