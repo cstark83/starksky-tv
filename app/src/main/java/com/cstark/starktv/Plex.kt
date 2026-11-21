@@ -34,6 +34,7 @@ data class Item(
     val lastViewedAt: Long = 0L,
     val guid: String? = null,
     val tmdbId: String? = null,
+    val titleSort: String? = null, // Plex sort title ("Matrix" for "The Matrix"); null when it equals the title
 ) {
     /** The key of the show/movie this card should open. */
     val showKey: String
@@ -113,6 +114,7 @@ fun JSONObject.toItem() = Item(
     lastViewedAt = optLong("lastViewedAt"),
     guid = str("guid"),
     tmdbId = tmdbGuid(),
+    titleSort = str("titleSort"),
 )
 
 class PlexApi(private val prefs: Prefs) {

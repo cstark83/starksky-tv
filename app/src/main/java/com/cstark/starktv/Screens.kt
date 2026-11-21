@@ -24,6 +24,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items as gridItems
+import androidx.compose.foundation.lazy.grid.itemsIndexed as gridItemsIndexed
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -57,6 +58,15 @@ import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.text.Normalizer
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.ExperimentalComposeUiApi
+import androidx.compose.foundation.lazy.grid.LazyGridState
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.focusGroup
+import androidx.compose.foundation.clickable
 
 // ---------------------------------------------------------------- sign in
 
@@ -440,11 +450,26 @@ fun MainScreen(
     }
 }
 
+private const val AZ = "#ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+/** Index letter for a title: A–Z from its Plex sort title (accents stripped), "#" for digits and symbols. */
+private fun azLetter(item: Item): Char {
+    val s = (item.titleSort ?: item.title).trim()
+    if (s.isEmpty()) return '#'
+    val c = Normalizer.normalize(s.substring(0, 1), Normalizer.Form.NFD)[0].uppercaseChar()
+    return if (c in 'A'..'Z') c else '#'
+}
+
 @Composable
 fun LibraryScreen(api: PlexApi, section: Section, refresh: Int, onOpen: (Item) -> Unit) {
-    var sort by rememberSaveable(section.key) { mutableStateOf("titleSort") }
+    var sort by rememberSaveable(section.key) { mutableStateOf("titleSort:asc") }
     var items by remember(section.key, sort) { mutableStateOf<List<Item>?>(null) }
     var err by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
+    val gridState = remember(section.key, sort) { LazyGridState() }
+    // The grid item focus returns to when you press Left from the A–Z column (last focused, or last jumped to).
+    var target by remember(section.key, sort) { mutableIntStateOf(0) }
+    val targetFr = remember { FocusRequester() }
 
     LaunchedEffect(section.key, sort, refresh) {
         try { items = api.library(section, sort); err = null } catch (e: Exception) { err = e.message }
@@ -452,20 +477,101 @@ fun LibraryScreen(api: PlexApi, section: Section, refresh: Int, onOpen: (Item) -
 
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.padding(horizontal = 48.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Chip("A–Z", sort == "titleSort") { sort = "titleSort" }
+            Chip("A–Z", sort == "titleSort:asc") { sort = "titleSort:asc" }
             Chip("Recently Added", sort == "addedAt:desc") { sort = "addedAt:desc" }
         }
         val list = items
         if (list == null) {
             Centered(err ?: "Loading…")
         } else {
-            LazyVerticalGrid(
-                columns = GridCells.Adaptive(166.dp),
-                contentPadding = PaddingValues(horizontal = 48.dp, vertical = 20.dp),
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
-                verticalArrangement = Arrangement.spacedBy(20.dp),
+            // The whole library is loaded in one go, so letter positions come straight from the list.
+            val showAz = sort == "titleSort:asc" && list.isNotEmpty()
+            val firstIndex = remember(list) {
+                val m = HashMap<Char, Int>()
+                list.forEachIndexed { i, it -> m.putIfAbsent(azLetter(it), i) }
+                m
+            }
+            val current = if (showAz) list.getOrNull(target)?.let { azLetter(it) } else null
+            Row(Modifier.fillMaxSize()) {
+                LazyVerticalGrid(
+                    state = gridState,
+                    modifier = Modifier.weight(1f),
+                    columns = GridCells.Adaptive(166.dp),
+                    // with the index, 28dp of the right padding moves into the letter column, so posters keep their size
+                    contentPadding = PaddingValues(start = 48.dp, end = if (showAz) 20.dp else 48.dp, top = 20.dp, bottom = 20.dp),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(20.dp),
+                ) {
+                    gridItemsIndexed(list) { i, item ->
+                        Box(if (i == target) Modifier.focusRequester(targetFr) else Modifier) {
+                            PosterCard(api, item, false, onFocus = { target = i }) { onOpen(item) }
+                        }
+                    }
+                }
+                if (showAz) {
+                    AzIndex(firstIndex, current, targetFr) { idx ->
+                        target = idx
+                        scope.launch { gridState.scrollToItem(idx) }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** "#", A–Z down the right edge. Focusing (or OK on) a letter jumps the grid; letters with no titles are skipped. */
+@OptIn(ExperimentalComposeUiApi::class)
+@Composable
+private fun AzIndex(firstIndex: Map<Char, Int>, current: Char?, back: FocusRequester, onJump: (Int) -> Unit) {
+    val accent = LocalAccent.current
+    val frs = remember { List(AZ.length) { FocusRequester() } }
+    val curPos = if (current != null && firstIndex.containsKey(current)) AZ.indexOf(current) else -1
+    Column(
+        Modifier
+            .width(28.dp)
+            .fillMaxHeight()
+            .padding(vertical = 8.dp)
+            // coming in from the grid lands on the current letter, not whichever letter is nearest
+            .focusProperties { enter = { if (curPos >= 0) frs[curPos] else FocusRequester.Default } }
+            .focusGroup(),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        AZ.forEachIndexed { i, ch ->
+            val idx = firstIndex[ch]
+            var focused by remember { mutableStateOf(false) }
+            Box(
+                Modifier
+                    .weight(1f, fill = false)
+                    .height(16.dp)
+                    .fillMaxWidth()
+                    .focusRequester(frs[i])
+                    .focusProperties {
+                        canFocus = idx != null
+                        left = back
+                    }
+                    .onFocusChanged {
+                        focused = it.isFocused
+                        if (it.isFocused && idx != null) onJump(idx)
+                    }
+                    .clickable(enabled = idx != null) { if (idx != null) onJump(idx) },
+                contentAlignment = Alignment.Center,
             ) {
-                gridItems(list) { item -> PosterCard(api, item, false) { onOpen(item) } }
+                Text(
+                    ch.toString(),
+                    fontSize = 12.sp,
+                    lineHeight = 12.sp,
+                    fontWeight = if (focused || ch == current) FontWeight.Bold else FontWeight.Normal,
+                    color = when {
+                        focused -> Color.Black
+                        ch == current -> accent
+                        idx != null -> Pal.Dim
+                        else -> Pal.Dim.copy(alpha = 0.3f)
+                    },
+                    modifier = Modifier
+                        .background(if (focused) Color.White else Color.Transparent, RoundedCornerShape(4.dp))
+                        .padding(horizontal = 4.dp),
+                )
             }
         }
     }
