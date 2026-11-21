@@ -110,7 +110,7 @@ fun NowPlayingScreen(onClose: () -> Unit) {
             projLauncher.launch(mpm.createScreenCaptureIntent())
         } catch (e: Exception) {
             Capture.state = "unavailable"
-            Capture.note = "This device doesn't offer the screen-capture permission screen, so it can't share audio with Starksky TV."
+            Capture.note = "This device doesn't offer the screen-capture permission screen, so it can't share audio with Starsky TV."
         }
     }
     val micLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->

@@ -18,6 +18,10 @@ class Prefs(ctx: Context) {
         get() = sp.getString("utoken", null)
         set(v) { sp.edit().putString("utoken", v).apply() }
 
+    var serverToken: String?
+        get() = sp.getString("stoken", null)
+        set(v) { sp.edit().putString("stoken", v).apply() }
+
     var userName: String?
         get() = sp.getString("uname", null)
         set(v) { sp.edit().putString("uname", v).apply() }

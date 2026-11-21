@@ -81,14 +81,14 @@ object Updater {
         val link = url ?: return
         if (busy) return
         if (Build.VERSION.SDK_INT >= 26 && !ctx.packageManager.canRequestPackageInstalls()) {
-            status = "Allow installs for Starksky TV, come back and press Install again"
+            status = "Allow installs for Starsky TV, come back and press Install again"
             try {
                 ctx.startActivity(
                     Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${ctx.packageName}"))
                         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
                 )
             } catch (e: Exception) {
-                status = "Turn on Settings > Device Preferences > Security > Unknown sources > Starksky TV"
+                status = "Turn on Settings > Device Preferences > Security > Unknown sources > Starsky TV"
             }
             return
         }

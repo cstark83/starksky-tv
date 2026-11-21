@@ -1,4 +1,4 @@
-# Starksky TV
+# Starsky TV
 
 A clean, fast Plex client for Android TV (built for the NVIDIA SHIELD).
 
@@ -26,7 +26,7 @@ Direct link to the newest build:
 - Home shows the selected title's artwork full-screen, with the clock and weather (Open-Meteo, no key; set to Columbia City in `Prefs.kt`).
 - Accent color follows the artwork of the selected title.
 - **Spotify** chip in the top bar opens the Spotify TV app.
-- **Now playing / lyrics:** Settings → "Allow now playing (Spotify)" opens Android's notification-access screen. Turn Starksky TV on there. Synced lyrics come from LRCLIB.
+- **Now playing / lyrics:** Settings → "Allow now playing (Spotify)" opens Android's notification-access screen. Turn Starsky TV on there. Synced lyrics come from LRCLIB.
 - **Visualizer** (on the Now Playing screen) is an experiment: it asks Android for permission to capture the music app's audio. Spotify or the SHIELD may block it, in which case the screen says so.
 
 ## Search, watched, trailers

@@ -92,7 +92,7 @@ fun LoginScreen(api: PlexApi, prefs: Prefs, onDone: () -> Unit) {
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Text("STARKSKY TV", color = Pal.Accent, fontSize = 28.sp, fontWeight = FontWeight.Bold)
+        Text("STARSKY TV", color = Pal.Accent, fontSize = 28.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(24.dp))
         Text("On your phone or computer, go to", fontSize = 20.sp, color = Pal.Dim)
         Text("plex.tv/link", fontSize = 36.sp, fontWeight = FontWeight.Bold)
@@ -177,6 +177,7 @@ fun ProfilesScreen(api: PlexApi, prefs: Prefs, onDone: () -> Unit) {
         if (list.isEmpty()) {
             // No Plex Home set up: just use the account itself.
             prefs.userToken = prefs.accountToken
+            prefs.serverToken = null
             prefs.userName = "Me"
             onDone()
         } else {
@@ -190,7 +191,9 @@ fun ProfilesScreen(api: PlexApi, prefs: Prefs, onDone: () -> Unit) {
     fun choose(p: Profile, pin: String?) {
         scope.launch {
             try {
-                prefs.userToken = api.switchProfile(prefs.accountToken ?: "", p.uuid, pin)
+                val tok = api.switchProfile(prefs.accountToken ?: "", p.uuid, pin)
+                prefs.userToken = tok
+                prefs.serverToken = api.serverAccessToken(tok)
                 prefs.userName = p.title
                 onDone()
             } catch (e: Exception) {

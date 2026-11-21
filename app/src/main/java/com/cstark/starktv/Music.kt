@@ -186,7 +186,7 @@ object NowPlaying {
     }
 }
 
-/** The system binds this once the user has allowed "notification access" for Starksky TV. */
+/** The system binds this once the user has allowed "notification access" for Starsky TV. */
 class MusicListener : NotificationListenerService() {
     override fun onListenerConnected() {
         NowPlaying.attach(this, ComponentName(this, MusicListener::class.java))

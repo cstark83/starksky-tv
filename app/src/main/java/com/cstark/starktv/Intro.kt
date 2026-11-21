@@ -70,7 +70,7 @@ import kotlin.random.Random
 val INTRO_NAMES = listOf("Cinema film", "Blockbuster", "Spotlight", "Marquee", "Curtain rise", "Starlight")
 const val INTRO_OFF = 6
 
-private const val INTRO_TITLE = "STARKSKY TV"
+private const val INTRO_TITLE = "STARSKY TV"
 private const val INTRO_TAGLINE = "YOUR LIBRARY.  YOUR THEATER."
 private val GOLD = Pal.Accent
 

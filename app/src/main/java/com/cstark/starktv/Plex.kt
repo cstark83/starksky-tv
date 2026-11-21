@@ -124,6 +124,7 @@ class PlexApi(private val prefs: Prefs) {
     /** Server base URL, e.g. http://192.168.1.8:32400 — set by connect(). */
     var base: String = ""
     val token: String get() = prefs.userToken ?: prefs.accountToken ?: ""
+    val srvToken: String get() = prefs.serverToken ?: token
 
     private fun enc(s: String) = URLEncoder.encode(s, "UTF-8")
 
@@ -131,11 +132,11 @@ class PlexApi(private val prefs: Prefs) {
         val b = Request.Builder().url(url)
             .header("Accept", "application/json")
             .header("X-Plex-Client-Identifier", prefs.clientId)
-            .header("X-Plex-Product", "Starksky TV")
+            .header("X-Plex-Product", "Starsky TV")
             .header("X-Plex-Version", "1.0")
             .header("X-Plex-Platform", "Android")
             .header("X-Plex-Device", "Android TV")
-            .header("X-Plex-Device-Name", "Starksky TV")
+            .header("X-Plex-Device-Name", "Starsky TV")
         if (!tok.isNullOrEmpty()) b.header("X-Plex-Token", tok)
         if (method == "POST") b.post("".toRequestBody(null))
         if (method == "PUT") b.put("".toRequestBody(null))
@@ -237,10 +238,27 @@ class PlexApi(private val prefs: Prefs) {
         JSONObject(exec(req(url, accountToken, "POST"))).getString("authToken")
     }
 
+    suspend fun serverAccessToken(profileToken: String): String? = withContext(Dispatchers.IO) {
+        try {
+            val arr = JSONArray(exec(req("https://plex.tv/api/v2/resources?includeHttps=1&includeRelay=1", profileToken)))
+            var best: JSONObject? = null
+            for (i in 0 until arr.length()) {
+                val d = arr.getJSONObject(i)
+                if (!d.optString("provides").contains("server")) continue
+                if (best == null) best = d
+                if (d.optString("name") == prefs.serverName) { best = d; break }
+                if (d.optBoolean("owned")) best = d
+            }
+            best?.optString("accessToken")?.ifEmpty { null }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
     // ---------- your server ----------
 
     private suspend fun srv(path: String): JSONObject =
-        json("$base$path", token).optJSONObject("MediaContainer") ?: JSONObject()
+        json("$base$path", srvToken).optJSONObject("MediaContainer") ?: JSONObject()
 
     private fun JSONObject.metas(): List<Item> {
         val a = optJSONArray("Metadata") ?: return emptyList()
@@ -358,7 +376,7 @@ class PlexApi(private val prefs: Prefs) {
         withContext(Dispatchers.IO) {
             try {
                 val k = enc("/library/metadata/${item.ratingKey}")
-                exec(req("$base/:/timeline?ratingKey=${item.ratingKey}&key=$k&identifier=com.plexapp.plugins.library&state=$state&time=$posMs&duration=${item.duration}", token))
+                exec(req("$base/:/timeline?ratingKey=${item.ratingKey}&key=$k&identifier=com.plexapp.plugins.library&state=$state&time=$posMs&duration=${item.duration}", srvToken))
             } catch (_: Exception) {
             }
         }
@@ -367,7 +385,7 @@ class PlexApi(private val prefs: Prefs) {
     suspend fun scrobble(ratingKey: String) {
         withContext(Dispatchers.IO) {
             try {
-                exec(req("$base/:/scrobble?key=$ratingKey&identifier=com.plexapp.plugins.library", token))
+                exec(req("$base/:/scrobble?key=$ratingKey&identifier=com.plexapp.plugins.library", srvToken))
             } catch (_: Exception) {
             }
         }
@@ -377,7 +395,7 @@ class PlexApi(private val prefs: Prefs) {
     suspend fun setWatched(ratingKey: String, watched: Boolean): Boolean = withContext(Dispatchers.IO) {
         try {
             val action = if (watched) "scrobble" else "unscrobble"
-            exec(req("$base/:/$action?key=$ratingKey&identifier=com.plexapp.plugins.library", token))
+            exec(req("$base/:/$action?key=$ratingKey&identifier=com.plexapp.plugins.library", srvToken))
             true
         } catch (_: Exception) {
             false
@@ -387,7 +405,7 @@ class PlexApi(private val prefs: Prefs) {
     /** Asks Plex to drop an item from Continue Watching without marking it watched. */
     suspend fun hideFromContinue(ratingKey: String): Boolean = withContext(Dispatchers.IO) {
         try {
-            exec(req("$base/actions/removeFromContinueWatching?ratingKey=$ratingKey", token, "PUT"))
+            exec(req("$base/actions/removeFromContinueWatching?ratingKey=$ratingKey", srvToken, "PUT"))
             true
         } catch (_: Exception) {
             false
@@ -460,10 +478,10 @@ class PlexApi(private val prefs: Prefs) {
     // ---------- URL helpers ----------
 
     fun img(path: String?, w: Int, h: Int): String? =
-        path?.let { "$base/photo/:/transcode?width=$w&height=$h&minSize=1&upscale=1&url=${enc(it)}&X-Plex-Token=$token" }
+        path?.let { "$base/photo/:/transcode?width=$w&height=$h&minSize=1&upscale=1&url=${enc(it)}&X-Plex-Token=$srvToken" }
 
     fun media(path: String): String =
-        "$base$path${if (path.contains("?")) "&" else "?"}X-Plex-Token=$token"
+        "$base$path${if (path.contains("?")) "&" else "?"}X-Plex-Token=$srvToken"
 }
 
 fun fmtTime(ms: Long): String {

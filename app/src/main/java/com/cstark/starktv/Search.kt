@@ -123,7 +123,7 @@ fun SearchScreen(api: PlexApi, ov: OverseerrApi, onRequest: (Media) -> Unit, onO
                     try {
                         val i = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
                             .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                            .putExtra(RecognizerIntent.EXTRA_PROMPT, "Search Starksky TV")
+                            .putExtra(RecognizerIntent.EXTRA_PROMPT, "Search Starsky TV")
                         speech.launch(i)
                     } catch (e: Exception) {
                         Toast.makeText(ctx, "Voice search isn't available on this device", Toast.LENGTH_LONG).show()

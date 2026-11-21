@@ -117,7 +117,7 @@ class CaptureService : Service() {
         }
         val n: Notification = NotificationCompat.Builder(this, "capture")
             .setSmallIcon(android.R.drawable.ic_media_play)
-            .setContentTitle("Starksky TV visualizer")
+            .setContentTitle("Starsky TV visualizer")
             .setContentText("Listening to the music that's playing")
             .build()
         if (Build.VERSION.SDK_INT >= 29) {

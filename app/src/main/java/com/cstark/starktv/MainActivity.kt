@@ -99,6 +99,7 @@ fun App(api: PlexApi, prefs: Prefs) {
 
     fun switchProfile() {
         prefs.userToken = null
+        prefs.serverToken = null
         ov.reset()
         home.reset()
         reset(Screen.Profiles)
