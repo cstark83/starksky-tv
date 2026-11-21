@@ -388,6 +388,7 @@ fun MainScreen(
     onSignOut: () -> Unit,
 ) {
     val ctx = LocalContext.current
+    LaunchedEffect(Unit) { Updater.check(ctx) }
     LaunchedEffect(refresh) {
         loadHome(api, home)
         // keep in step with Plex (other devices, other apps) while this screen is open
@@ -495,6 +496,13 @@ fun SettingsScreen(
             Chip("Play opening", onClick = onPreviewIntro)
         }
         Chip("Sync from Plex now", onClick = onSync)
+        val scope = rememberCoroutineScope()
+        if (Updater.newBuild > 0) {
+            Chip("Install update (build ${Updater.newBuild})", selected = true) { scope.launch { Updater.install(ctx) } }
+        } else {
+            Chip("Check for updates") { scope.launch { Updater.check(ctx) } }
+        }
+        if (Updater.status.isNotBlank()) Text(Updater.status, fontSize = 14.sp, color = Pal.Dim)
         LaunchedEffect(Unit) { ov.ensure() }
         Text("Requests (Overseerr): ${ov.status}", fontSize = 14.sp, color = Pal.Dim)
         Text(

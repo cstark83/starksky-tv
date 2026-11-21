@@ -8,12 +8,23 @@ android {
     namespace = "com.cstark.starktv"
     compileSdk = 35
 
+    // Same signing key on every build, so each new build can install over the old one
+    signingConfigs {
+        getByName("debug") {
+            storeFile = file("starksky-debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     defaultConfig {
         applicationId = "com.cstark.starktv"
         minSdk = 24
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0"
+        val build = (project.findProperty("buildNumber") as String?)?.toIntOrNull() ?: 1
+        versionCode = build
+        versionName = "build $build"
     }
 
     buildTypes {

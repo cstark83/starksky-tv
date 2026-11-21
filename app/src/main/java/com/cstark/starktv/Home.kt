@@ -132,6 +132,7 @@ fun TopBar(prefs: Prefs, home: HomeData, onSearch: () -> Unit, onSpotify: () -> 
             Chip("Search", false, compact = true, onClick = onSearch)
             Chip("Spotify", false, compact = true, onClick = onSpotify)
             Chip("Discover", home.tab == home.discoverTab, compact = true) { home.tab = home.discoverTab }
+            if (Updater.newBuild > 0) Chip("Update", false, compact = true) { home.tab = home.settingsTab }
             Chip("Settings", home.tab == home.settingsTab, compact = true) { home.tab = home.settingsTab }
         }
         WeatherBlock(prefs)

@@ -23,8 +23,14 @@ jobs:
         with:
           gradle-version: 8.10.2
 
+      - name: Add TMDB key (optional repo secret TMDB_KEY)
+        env:
+          TMDB_KEY: ${{ secrets.TMDB_KEY }}
+        run: |
+          if [ -n "$TMDB_KEY" ]; then printf '%s\n' "$TMDB_KEY" > app/src/main/assets/tmdb_key.txt; fi
+
       - name: Build debug APK
-        run: gradle assembleDebug --no-daemon
+        run: gradle assembleDebug -PbuildNumber=${{ github.run_number }} --no-daemon
 
       - uses: actions/upload-artifact@v4
         with:

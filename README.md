@@ -48,3 +48,11 @@ Direct link to the newest build:
 - Home has a **Watchlist** row: the same Plex Watchlist every Plex app shows for the selected profile. Titles you already have open their library page; the rest open the request page.
 - **Add to / Remove from Watchlist** is on every title page and on the request page. It is written to Plex, so it syncs both ways.
 - Profiles are your Plex Home users (pick one at launch). Add or remove a user in Plex and the change shows up here.
+
+## Auto-update
+
+- Each push to GitHub builds a new numbered release (build 2, 3, …). The app checks the latest release every time it opens. When a newer build exists, an **Update** chip appears in the top bar, and Settings shows **Install update**.
+- Android always asks you to press **Install** once; apps can't install themselves silently.
+- All builds are signed with the key in `app/starksky-debug.keystore`, so new builds install over old ones without uninstalling. Don't delete it.
+- The repo must be public for the app to read releases without a login.
+- Optional: add your TMDB key as a repo secret named `TMDB_KEY` (Settings → Secrets and variables → Actions) instead of committing it.
