@@ -189,6 +189,35 @@ class OverseerrApi(private val ctx: Context, private val prefs: Prefs) {
         }
     }
 
+    /** Genre list for "movie" or "tv": (TMDB genre id, name). */
+    suspend fun genres(kind: String): List<Pair<Int, String>> = withContext(Dispatchers.IO) {
+        try {
+            if (!ensure()) return@withContext emptyList()
+            val (code, text) = call("GET", "/genres/$kind?language=en")
+            if (code !in 200..299) return@withContext emptyList()
+            val arr = JSONArray(text)
+            (0 until arr.length()).mapNotNull { i ->
+                val o = arr.optJSONObject(i) ?: return@mapNotNull null
+                val name = o.optString("name")
+                if (name.isEmpty()) null else o.optInt("id") to name
+            }
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    /** Titles matching ALL the given genres (the comma must be URL-encoded, Seerr rejects a raw one). */
+    suspend fun discoverByGenres(kind: String, genreIds: Set<Int>): List<Media> = withContext(Dispatchers.IO) {
+        try {
+            if (genreIds.isEmpty() || !ensure()) return@withContext emptyList()
+            val path = if (kind == "tv") "tv" else "movies"
+            val (code, text) = call("GET", "/discover/$path?page=1&language=en&genre=${enc(genreIds.joinToString(","))}")
+            if (code !in 200..299) emptyList() else JSONObject(text).optJSONArray("results").mediaList(kind)
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
     /** One title with its current status (and Plex key if it's already in your library). */
     suspend fun detail(kind: String, tmdbId: Int): Media? = withContext(Dispatchers.IO) {
         try {

@@ -41,6 +41,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.Brush
@@ -237,17 +238,27 @@ private fun HeroInfo(
         playable && item.duration > 0 -> fmtRuntime(item.duration)
         else -> ""
     }
-    Column(Modifier.width(620.dp)) {
+    val hint = "Hold OK for options"
+    Column(Modifier.width(620.dp).padding(bottom = 12.dp)) {
         Text(
             item.label.uppercase(),
             fontFamily = FontFamily.Serif,
-            fontSize = 40.sp,
-            letterSpacing = 4.sp,
+            fontSize = 52.sp,
+            lineHeight = 60.sp,
+            letterSpacing = 1.sp,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(bottom = 6.dp),
         )
         if (line1.isNotBlank()) Text(line1, fontSize = 16.sp, color = Color(0xFFD8D4CA), modifier = Modifier.padding(top = 8.dp))
-        if (line2.isNotBlank()) Text(line2, fontSize = 15.sp, color = Pal.Dim, modifier = Modifier.padding(top = 2.dp))
+        if (line2.isNotBlank()) {
+            Row(Modifier.padding(top = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(line2, fontSize = 15.sp, color = Pal.Dim, maxLines = 1)
+                Text("  ·  $hint", fontSize = 12.sp, color = Pal.Dim, maxLines = 1, modifier = Modifier.alpha(0.6f))
+            }
+        } else {
+            Text(hint, fontSize = 12.sp, color = Pal.Dim, maxLines = 1, modifier = Modifier.padding(top = 2.dp).alpha(0.6f))
+        }
         if (item.summary.isNotBlank()) {
             Text(
                 item.summary,
@@ -258,7 +269,6 @@ private fun HeroInfo(
                 modifier = Modifier.padding(top = 8.dp),
             )
         }
-        Text("Hold OK for options", fontSize = 13.sp, color = Pal.Dim, modifier = Modifier.padding(top = 12.dp))
     }
 }
 
@@ -320,7 +330,7 @@ fun HomeScreen(
 
     Column(Modifier.fillMaxSize()) {
         Box(
-            Modifier.fillMaxWidth().weight(0.42f).padding(horizontal = 48.dp),
+            Modifier.fillMaxWidth().weight(0.46f).padding(horizontal = 48.dp),
             contentAlignment = Alignment.BottomStart,
         ) {
             val sel = home.selected
@@ -351,7 +361,7 @@ fun HomeScreen(
             }
         }
         LazyColumn(
-            modifier = Modifier.weight(0.58f),
+            modifier = Modifier.weight(0.54f),
             state = home.listState,
             contentPadding = PaddingValues(bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp),

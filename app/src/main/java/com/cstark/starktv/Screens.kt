@@ -423,7 +423,7 @@ fun MainScreen(
                     when {
                         t == 0 -> HomeScreen(api, home, ov, onDetail, onPlay, onNowPlaying, onRequest)
                         t <= home.sections.size -> LibraryScreen(api, home.sections[t - 1], refresh) { onDetail(it.showKey) }
-                        t == home.discoverTab -> DiscoverScreen(home, onRequest)
+                        t == home.discoverTab -> DiscoverScreen(home, ov, onRequest)
                         else -> SettingsScreen(api, prefs, ov, onPreviewIntro, onSync, onSwitchProfile, onSignOut)
                     }
                 }
