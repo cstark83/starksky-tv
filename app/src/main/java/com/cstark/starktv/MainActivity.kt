@@ -176,6 +176,11 @@ fun App(api: PlexApi, prefs: Prefs) {
                 api, prefs, s,
                 onNext = { next -> stack[stack.lastIndex] = Screen.Play(next, 0L) },
                 onExit = { pop() },
+                // sleep timer: back to Home (Main), closing the player and anything opened on top of Home
+                onHome = {
+                    refresh++
+                    while (stack.size > 1 && stack.last() != Screen.Main) stack.removeAt(stack.lastIndex)
+                },
             )
         }
     }

@@ -77,6 +77,10 @@ data class PlayInfo(
     val introStart: Long,
     val introEnd: Long,
     val nextKey: String?,
+    /** Where the credits start (Plex "credits" marker), or -1 when Plex has none. */
+    val creditsStart: Long = -1L,
+    /** The next episode (for the "Next episode in 10s" overlay). */
+    val next: Item? = null,
 )
 
 private fun JSONObject.str(k: String): String? =
@@ -350,6 +354,7 @@ class PlexApi(private val prefs: Prefs) {
 
         var introStart = -1L
         var introEnd = -1L
+        var creditsStart = -1L
         val markers = m.optJSONArray("Marker")
         if (markers != null) {
             for (i in 0 until markers.length()) {
@@ -358,20 +363,28 @@ class PlexApi(private val prefs: Prefs) {
                     introStart = mk.optLong("startTimeOffset", -1)
                     introEnd = mk.optLong("endTimeOffset", -1)
                 }
+                // credits: prefer the one Plex marks final (the real end credits), else the first one
+                if (mk.optString("type") == "credits" && (creditsStart < 0 || mk.optBoolean("final"))) {
+                    creditsStart = mk.optLong("startTimeOffset", -1)
+                }
             }
         }
 
         var next: String? = null
+        var nextItem: Item? = null
         val show = item.grandparentRatingKey
         if (item.type == "episode" && show != null) {
             try {
                 val leaves = srv("/library/metadata/$show/allLeaves").metas()
                 val idx = leaves.indexOfFirst { it.ratingKey == item.ratingKey }
-                if (idx >= 0) next = leaves.getOrNull(idx + 1)?.ratingKey
+                if (idx >= 0) {
+                    nextItem = leaves.getOrNull(idx + 1)
+                    next = nextItem?.ratingKey
+                }
             } catch (_: Exception) {
             }
         }
-        return PlayInfo(item, partKey, subs, introStart, introEnd, next)
+        return PlayInfo(item, partKey, subs, introStart, introEnd, next, creditsStart, nextItem)
     }
 
     suspend fun timeline(item: Item, state: String, posMs: Long) {

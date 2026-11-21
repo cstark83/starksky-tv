@@ -638,6 +638,16 @@ fun SettingsScreen(
         if (Updater.status.isNotBlank()) Text(Updater.status, fontSize = 14.sp, color = Pal.Dim)
         Text("Last update check: ${prefs.lastUpdateCheck ?: "never"}", fontSize = 14.sp, color = Pal.Dim)
         Text("Last playback error: ${prefs.lastPlayError ?: "None"}", fontSize = 14.sp, color = Pal.Dim)
+        var forgot by remember { mutableStateOf<String?>(null) }
+        Chip("Forget track choices") {
+            val n = prefs.forgetTracks()
+            forgot = if (n == 0) "No saved audio/subtitle choices." else "Forgot $n saved audio/subtitle choice${if (n == 1) "" else "s"}."
+        }
+        Text(
+            forgot ?: "Audio and subtitle picks are remembered per show (per profile) and used on its next episodes.",
+            fontSize = 14.sp,
+            color = Pal.Dim,
+        )
         LaunchedEffect(Unit) { ov.ensure() }
         Text("Requests (Overseerr): ${ov.status}", fontSize = 14.sp, color = Pal.Dim)
         Text(

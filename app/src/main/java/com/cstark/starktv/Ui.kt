@@ -30,6 +30,15 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.ExperimentalComposeUiApi
+import androidx.compose.foundation.focusGroup
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.key
+import kotlinx.coroutines.delay
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
@@ -189,6 +198,70 @@ fun PosterCard(
                 fontSize = 12.sp,
                 color = Pal.Dim,
             )
+        }
+    }
+}
+
+// ---------------------------------------------------------------- hold-OK menus
+
+/** How long OK/Select must be held to open an options menu (player sleep timer, title options). */
+const val HOLD_OK_MS = 3000L
+
+fun isOkKey(k: Key) = k == Key.DirectionCenter || k == Key.Enter || k == Key.NumPadEnter
+
+/**
+ * Menu opened by holding OK for [HOLD_OK_MS]. It is drawn over the screen (same window, so focus never jumps to another
+ * window), takes focus on its first option and keeps it there, and stays open until an option is picked or Back is pressed.
+ * The OK that is still held down when it opens (its key repeats and the key-up when it is released) is swallowed, so letting
+ * go never picks an option: the menu only "arms" after OK is released, or after 600 ms without any OK key event.
+ */
+@OptIn(ExperimentalComposeUiApi::class)
+@Composable
+fun HoldMenu(title: String, options: List<Pair<String, () -> Unit>>, onDismiss: () -> Unit, selected: Int = -1) {
+    val first = remember { FocusRequester() }
+    var armed by remember { mutableStateOf(false) }
+    var lastOk by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) {
+        runCatching { first.requestFocus() }
+        while (!armed) {
+            delay(100)
+            if (System.currentTimeMillis() - lastOk > 600) armed = true
+        }
+    }
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(Color(0xCC000000))
+            .onPreviewKeyEvent { e ->
+                when {
+                    isOkKey(e.key) && !armed -> {
+                        lastOk = System.currentTimeMillis()
+                        if (e.type == KeyEventType.KeyUp) armed = true
+                        true
+                    }
+                    // close on key-up, so the Back key-up can't also leave the screen underneath
+                    e.key == Key.Back -> {
+                        if (e.type == KeyEventType.KeyUp) onDismiss()
+                        true
+                    }
+                    else -> false
+                }
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            Modifier
+                .background(Pal.Card, RoundedCornerShape(16.dp))
+                .padding(32.dp)
+                .focusProperties { exit = { FocusRequester.Cancel } } // D-pad can't leave the menu
+                .focusGroup(),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text(title, fontSize = 22.sp, color = Color.White)
+            options.forEachIndexed { i, (label, act) ->
+                Chip(label, selected = i == selected, fr = if (i == 0) first else null, onClick = act)
+            }
         }
     }
 }

@@ -87,6 +87,17 @@ class Prefs(ctx: Context) {
         get() = sp.getString("updchk", null)
         set(v) { sp.edit().putString("updchk", v).apply() }
 
+    // Audio / subtitle choice per show, per profile: "a=<lang>;t=off" or "a=<lang>;t=<lang>,f=<forced 0|1>,s=<SDH 0|1>".
+    private fun trkKey(show: String) = "trk:${userName ?: "default"}:$show"
+    fun trackChoice(show: String): String? = sp.getString(trkKey(show), null)
+    fun setTrackChoice(show: String, v: String) { sp.edit().putString(trkKey(show), v).apply() }
+    /** Forget every saved track choice (all shows, all profiles). Returns how many were removed. */
+    fun forgetTracks(): Int {
+        val keys = sp.all.keys.filter { it.startsWith("trk:") }
+        sp.edit().apply { keys.forEach { remove(it) } }.apply()
+        return keys.size
+    }
+
     var weatherName: String
         get() = sp.getString("wname", "Columbia City") ?: "Columbia City"
         set(v) { sp.edit().putString("wname", v).apply() }
