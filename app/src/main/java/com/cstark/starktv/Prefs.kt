@@ -77,6 +77,16 @@ class Prefs(ctx: Context) {
         get() = lastSyncState.longValue
         set(v) { lastSyncState.longValue = v; sp.edit().putLong("lastsync", v).apply() }
 
+    /** "time · title · ERROR_CODE · message" of the last playback failure, shown in Settings. */
+    var lastPlayError: String?
+        get() = sp.getString("playerr", null)
+        set(v) { sp.edit().putString("playerr", v).apply() }
+
+    /** "time · result" of the last update check (automatic or manual), shown in Settings. */
+    var lastUpdateCheck: String?
+        get() = sp.getString("updchk", null)
+        set(v) { sp.edit().putString("updchk", v).apply() }
+
     var weatherName: String
         get() = sp.getString("wname", "Columbia City") ?: "Columbia City"
         set(v) { sp.edit().putString("wname", v).apply() }

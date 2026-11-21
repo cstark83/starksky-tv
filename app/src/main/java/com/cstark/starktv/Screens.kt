@@ -636,6 +636,8 @@ fun SettingsScreen(
             Chip("Check for updates") { scope.launch { Updater.check(ctx) } }
         }
         if (Updater.status.isNotBlank()) Text(Updater.status, fontSize = 14.sp, color = Pal.Dim)
+        Text("Last update check: ${prefs.lastUpdateCheck ?: "never"}", fontSize = 14.sp, color = Pal.Dim)
+        Text("Last playback error: ${prefs.lastPlayError ?: "None"}", fontSize = 14.sp, color = Pal.Dim)
         LaunchedEffect(Unit) { ov.ensure() }
         Text("Requests (Overseerr): ${ov.status}", fontSize = 14.sp, color = Pal.Dim)
         Text(

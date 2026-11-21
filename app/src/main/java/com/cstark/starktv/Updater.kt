@@ -16,6 +16,9 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
 import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import java.util.concurrent.TimeUnit
 
 const val UPDATE_REPO = "cstark83/starksky-tv"
@@ -66,15 +69,24 @@ object Updater {
                 newBuild = n
                 url = apk
                 status = "Update available: build $n"
+                saveResult(ctx, "build $n available")
             } else {
                 newBuild = 0
                 status = "Up to date (build ${current(ctx)})"
+                saveResult(ctx, "up to date (build ${current(ctx)})")
             }
         } catch (e: Exception) {
             status = "Couldn't check for updates (${e.message})"
+            saveResult(ctx, "couldn't check (${e.message})")
         } finally {
             busy = false
         }
+    }
+
+    /** Saves the check result with its time, for the "Last update check" line in Settings. */
+    private fun saveResult(ctx: Context, result: String) {
+        val time = SimpleDateFormat("MMM d, h:mm a", Locale.getDefault()).format(Date())
+        Prefs(ctx.applicationContext).lastUpdateCheck = "$time  ·  $result"
     }
 
     suspend fun install(ctx: Context) {

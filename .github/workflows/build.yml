@@ -29,6 +29,16 @@ jobs:
         run: |
           if [ -n "$TMDB_KEY" ]; then printf '%s\n' "$TMDB_KEY" > app/src/main/assets/tmdb_key.txt; fi
 
+      - name: Add Overseerr API key (optional repo secret OVERSEERR_API_KEY)
+        env:
+          OVERSEERR_API_KEY: ${{ secrets.OVERSEERR_API_KEY }}
+        run: |
+          # Fills only the apikey= line; the url/remote lines stay as committed. The value is never echoed.
+          if [ -n "$OVERSEERR_API_KEY" ]; then
+            f=app/src/main/assets/overseerr.txt
+            awk '/^apikey=/ { print "apikey=" ENVIRON["OVERSEERR_API_KEY"]; next } { print }' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
+          fi
+
       - name: Build debug APK
         run: gradle assembleDebug -PbuildNumber=${{ github.run_number }} --no-daemon
 

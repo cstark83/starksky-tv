@@ -42,6 +42,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 /**
  * Direct-plays the original file (no transcoding). Embedded and sidecar subtitles + audio tracks
@@ -93,6 +96,15 @@ fun PlayerScreen(
 
             override fun onPlayerError(e: PlaybackException) {
                 error = "Playback error: ${e.errorCodeName}"
+                // Keep the last failure so it can be read later in Settings.
+                val cur = info?.item
+                val title = when {
+                    cur == null -> if (req.url != null) "Trailer" else "Unknown title"
+                    cur.type == "episode" -> "${cur.label} ${cur.epCode}"
+                    else -> cur.label
+                }
+                val time = SimpleDateFormat("MMM d, h:mm a", Locale.getDefault()).format(Date())
+                prefs.lastPlayError = listOfNotNull(time, title, e.errorCodeName, e.message?.take(200)).joinToString("  ·  ")
             }
         }
         player.addListener(l)
