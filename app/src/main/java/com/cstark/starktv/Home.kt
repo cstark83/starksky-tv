@@ -120,7 +120,7 @@ fun WeatherBlock(prefs: Prefs) {
 }
 
 @Composable
-fun TopBar(prefs: Prefs, home: HomeData, onSearch: () -> Unit, onSpotify: () -> Unit) {
+fun TopBar(prefs: Prefs, home: HomeData, onSearch: () -> Unit, onProfile: () -> Unit, onSpotify: () -> Unit) {
     Row(
         Modifier.fillMaxWidth().padding(horizontal = 48.dp, vertical = 14.dp),
         verticalAlignment = Alignment.Top,
@@ -128,8 +128,9 @@ fun TopBar(prefs: Prefs, home: HomeData, onSearch: () -> Unit, onSpotify: () -> 
         ClockBlock()
         Row(
             Modifier.weight(1f).padding(top = 8.dp).padding(horizontal = 12.dp).horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
+            Chip(prefs.userName ?: "Profile", false, compact = true, onClick = onProfile)
             Chip("Home", home.tab == 0, compact = true) { home.tab = 0 }
             home.sections.forEachIndexed { i, s -> Chip(s.title, home.tab == i + 1, compact = true) { home.tab = i + 1 } }
             Chip("Search", false, compact = true, onClick = onSearch)

@@ -2,6 +2,7 @@ package com.cstark.starktv
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -135,13 +136,12 @@ fun BootScreen(
             api.sections()
             onReady()
         } catch (e: Exception) {
-            if (e.message?.contains("HTTP 401") == true) {
-                prefs.userToken = null
-                onProfiles()
+            status = if (e.message?.contains("HTTP 401") == true) {
+                "Plex rejected this profile (401). Pick another profile or sign out."
             } else {
-                status = e.message ?: "Couldn't connect"
-                failed = true
+                e.message ?: "Couldn't connect"
             }
+            failed = true
         }
     }
 
@@ -194,7 +194,7 @@ fun ProfilesScreen(api: PlexApi, prefs: Prefs, onDone: () -> Unit) {
                 prefs.userName = p.title
                 onDone()
             } catch (e: Exception) {
-                error = if (p.protected) "Wrong PIN, try again" else (e.message ?: "Couldn't switch profile")
+                error = if (p.protected && (e.message?.contains("401") == true || e.message?.contains("403") == true)) "Wrong PIN, try again" else (e.message ?: "Couldn't switch profile")
             }
         }
     }
@@ -222,7 +222,10 @@ fun ProfilesScreen(api: PlexApi, prefs: Prefs, onDone: () -> Unit) {
     ) {
         Text("Who's watching?", fontSize = 32.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(32.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(28.dp)) {
+        Row(
+            Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 48.dp),
+            horizontalArrangement = Arrangement.spacedBy(28.dp),
+        ) {
             list.forEachIndexed { i, p ->
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Focusable(
@@ -411,7 +414,7 @@ fun MainScreen(
         Box(Modifier.fillMaxSize()) {
             if (home.tab == 0) HeroBackground(api, home.selected)
             Column(Modifier.fillMaxSize()) {
-                TopBar(prefs, home, onSearch) { openSpotify(ctx) }
+                TopBar(prefs, home, onSearch, onSwitchProfile) { openSpotify(ctx) }
                 Box(Modifier.weight(1f).fillMaxWidth()) {
                     val t = home.tab
                     when {
