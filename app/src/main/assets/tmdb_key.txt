@@ -1,0 +1,3 @@
+# Paste your free TMDB API key on the line below (no quotes). Lines starting with # are ignored.
+# Get one at themoviedb.org: Settings > API. Leave blank to turn the trailer backup off.
+

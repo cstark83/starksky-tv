@@ -1,0 +1,8 @@
+# Overseerr connection. Lines starting with # are ignored.
+# Address of Overseerr on your home network (5055 is its default port).
+url=http://192.168.1.8:5055
+# Optional: an address that works away from home. Leave blank if you don't have one.
+remote=
+# Optional fallback: your Overseerr API key (Overseerr > Settings > General).
+# Only used if signing in with a profile's Plex account doesn't work. Requests then go under the admin account.
+apikey=
