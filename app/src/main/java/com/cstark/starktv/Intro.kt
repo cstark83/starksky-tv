@@ -48,6 +48,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
@@ -100,6 +103,7 @@ private fun VideoIntro(onDone: () -> Unit) {
     val ctx = LocalContext.current
     val player = remember { ExoPlayer.Builder(ctx).build() }
     var finished by remember { mutableStateOf(false) }
+    var released by remember { mutableStateOf(false) }
     val focus = remember { FocusRequester() }
 
     fun finish() {
@@ -125,8 +129,23 @@ private fun VideoIntro(onDone: () -> Unit) {
         player.playWhenReady = true
         onDispose {
             player.removeListener(l)
-            player.release()
+            if (!released) player.release()
         }
+    }
+    // App left the screen (Home, TV off, SHIELD asleep): stop the opening at once (released, silent) and carry on, so it
+    // never plays in the background.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val obs = LifecycleEventObserver { _, ev ->
+            if (ev == Lifecycle.Event.ON_STOP && !released) {
+                released = true
+                player.pause()
+                player.release()
+                finish()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(obs)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(obs) }
     }
     LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
 
@@ -187,11 +206,23 @@ private fun IntroStage(
     DisposableEffect(Unit) {
         onDispose { track?.release() }
     }
+    // App left the screen (Home, TV off, SHIELD asleep): silence the opening sound and carry on.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val obs = LifecycleEventObserver { _, ev ->
+            if (ev == Lifecycle.Event.ON_STOP) {
+                runCatching { track?.pause(); track?.flush() }
+                finish()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(obs)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(obs) }
+    }
 
     LaunchedEffect(Unit) {
         runCatching { focus.requestFocus() }
         track = withContext(Dispatchers.Default) { sound() }
-        track?.play()
+        if (!finished) track?.play() // not if the app already left the screen while the sound was being made
         clock.animateTo(totalMs, tween(totalMs.toInt(), easing = LinearEasing))
         finish()
     }

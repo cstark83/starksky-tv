@@ -52,6 +52,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -88,6 +91,14 @@ fun NowPlayingScreen(onClose: () -> Unit) {
     }
     LaunchedEffect(Unit) { runCatching { playFocus.requestFocus() } }
     DisposableEffect(Unit) { onDispose { Capture.stop(ctx) } }
+    // App left the screen: stop the visualizer's audio-capture service too, so nothing keeps running in the background.
+    // (Spotify itself plays in its own app; Starsky only shows what it plays.)
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val obs = LifecycleEventObserver { _, ev -> if (ev == Lifecycle.Event.ON_STOP) Capture.stop(ctx) }
+        lifecycleOwner.lifecycle.addObserver(obs)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(obs) }
+    }
 
     val glow = remember(np.art) { np.art?.let { pickAccent(it) } ?: Pal.Accent }
 

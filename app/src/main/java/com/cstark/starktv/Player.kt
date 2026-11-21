@@ -31,6 +31,9 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -105,11 +108,14 @@ fun PlayerScreen(
     // Track memory: flags read inside the player listener (plain fields, not Compose state).
     val trk = remember { object { var programmatic = false; var userPicked = false; var applied = false } }
 
+    // true once the player was released early by ON_STOP (Home button, TV off, SHIELD asleep)
+    var released by remember { mutableStateOf(false) }
+
     // Tell Plex where we stopped (and mark watched past 90%), then release the session and the player.
     DisposableEffect(Unit) {
         onDispose {
             val i = info
-            if (i != null) {
+            if (i != null && !released) {
                 val pos = player.currentPosition
                 val dur = i.item.duration
                 val done = dur > 0 && pos > dur * 0.9
@@ -121,8 +127,41 @@ fun PlayerScreen(
             }
             session?.release()
             session = null
-            player.release()
+            if (!released) player.release()
         }
+    }
+
+    // App left the screen (Home button, another app, TV off, SHIELD asleep) = ON_STOP. Not ON_PAUSE, so volume popups,
+    // system dialogs and the notification shade don't stop playback. Pause, report the position to Plex at once (same
+    // timeline call as the normal progress sync, so the resume point is right), release the session and the player right
+    // away (no audio, no session, nothing left in the background), then leave the player like Back does, so coming back
+    // lands on the screen it was opened from (the title page reloads and Resume starts from the saved spot).
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val obs = LifecycleEventObserver { _, ev ->
+            if (ev == Lifecycle.Event.ON_STOP && !released) {
+                released = true
+                sleepEndAt = 0L
+                countdown = null
+                player.pause()
+                val i = info
+                val pos = player.currentPosition
+                val dur = i?.item?.duration ?: 0L
+                val done = dur > 0 && pos > dur * 0.9 && !scrobbled
+                if (i != null) {
+                    CoroutineScope(Dispatchers.IO).launch {
+                        api.timeline(i.item, "stopped", pos)
+                        if (done) api.scrobble(i.item.ratingKey)
+                    }
+                }
+                session?.release()
+                session = null
+                player.release()
+                onExit()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(obs)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(obs) }
     }
 
     fun setParams(p: TrackSelectionParameters) {
