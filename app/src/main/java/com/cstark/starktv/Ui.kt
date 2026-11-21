@@ -30,6 +30,10 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.nativeKeyEvent
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -58,10 +62,12 @@ fun Focusable(
     scaleOnFocus: Float = 1.06f,
     onClick: () -> Unit,
     onFocus: (() -> Unit)? = null,
+    onLongPress: (() -> Unit)? = null,
     content: @Composable BoxScope.(Boolean) -> Unit,
 ) {
     val accent = LocalAccent.current
     var focused by remember { mutableStateOf(false) }
+    var longFired by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(if (focused) scaleOnFocus else 1f, label = "focusScale")
     val shape = RoundedCornerShape(10.dp)
     var m = modifier.graphicsLayer { scaleX = scale; scaleY = scale }
@@ -73,6 +79,23 @@ fun Focusable(
         }
             .clip(shape)
             .border(if (focused) 3.dp else 0.dp, if (focused) accent else Color.Transparent, shape)
+            .onPreviewKeyEvent { e ->
+                val k = e.nativeKeyEvent.keyCode
+                if (onLongPress == null || (k != android.view.KeyEvent.KEYCODE_DPAD_CENTER && k != android.view.KeyEvent.KEYCODE_ENTER)) {
+                    false
+                } else if (e.type == KeyEventType.KeyDown) {
+                    if (e.nativeKeyEvent.repeatCount > 0 && !longFired) {
+                        longFired = true
+                        onLongPress()
+                    }
+                    true
+                } else if (e.type == KeyEventType.KeyUp) {
+                    if (longFired) longFired = false else onClick()
+                    true
+                } else {
+                    false
+                }
+            }
             .clickable(onClick = onClick),
     ) {
         this.content(focused)
@@ -130,12 +153,13 @@ fun PosterCard(
     landscape: Boolean,
     fr: FocusRequester? = null,
     onFocus: (() -> Unit)? = null,
+    onLongPress: (() -> Unit)? = null,
     onClick: () -> Unit,
 ) {
     val w = if (landscape) 280.dp else 150.dp
     val h = if (landscape) 158.dp else 225.dp
     Column(Modifier.width(w)) {
-        Focusable(Modifier.size(w, h), fr, 1.06f, onClick, onFocus) {
+        Focusable(Modifier.size(w, h), fr, 1.06f, onClick, onFocus, onLongPress) {
             val path = if (landscape) {
                 if (item.type == "episode") item.thumb ?: item.art else item.art ?: item.thumb
             } else {

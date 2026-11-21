@@ -52,6 +52,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.graphics.ColorUtils
@@ -256,20 +257,7 @@ private fun HeroInfo(
                 modifier = Modifier.padding(top = 8.dp),
             )
         }
-        Row(Modifier.padding(top = 14.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            if (external) {
-                Chip("Details", selected = true, onClick = onExternal)
-            } else if (playable) {
-                Chip(if (started) "Resume" else "Play", selected = true) { onPlay(item) }
-                Chip("Details") { onDetail(item.showKey) }
-                if (deck) {
-                    Chip("Mark watched", onClick = onMarkWatched)
-                    Chip("Remove", onClick = onRemove)
-                }
-            } else {
-                Chip("Open", selected = true) { onDetail(item.showKey) }
-            }
-        }
+        Text("Hold OK for options", fontSize = 13.sp, color = Pal.Dim, modifier = Modifier.padding(top = 12.dp))
     }
 }
 
@@ -312,6 +300,7 @@ fun HomeScreen(
 
     val first = remember { FocusRequester() }
     val scope = rememberCoroutineScope()
+    var menu by remember { mutableStateOf<Pair<Item, Boolean>?>(null) }
     // Watchlist titles: open the library page if you already have it, otherwise the request page
     fun openExternal(item: Item) {
         val id = item.tmdbId?.toIntOrNull() ?: return
@@ -390,10 +379,46 @@ fun HomeScreen(
                                     home.selectedDeck = row.playDirect
                                     home.selectedExternal = row.external
                                 },
+                                onLongPress = if (row.external) null else ({ menu = item to row.playDirect }),
                             ) {
                                 if (row.external) openExternal(item) else if (row.playDirect) onPlay(item) else onDetail(item.showKey)
                             }
                         }
+                    }
+                }
+            }
+        }
+    }
+    val m = menu
+    if (m != null) {
+        val (item, deck) = m
+        val playable = item.type == "episode" || item.type == "movie"
+        Dialog(onDismissRequest = { menu = null }) {
+            val firstChip = remember { FocusRequester() }
+            LaunchedEffect(Unit) { runCatching { firstChip.requestFocus() } }
+            Column(
+                Modifier.width(380.dp).background(Color(0xEE14161C)).padding(24.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Text(item.label, fontSize = 18.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (playable) {
+                    Chip(if (item.viewOffset > 0) "Resume" else "Play", selected = true, fr = firstChip) { menu = null; onPlay(item) }
+                    Chip("Details") { menu = null; onDetail(item.showKey) }
+                } else {
+                    Chip("Open", selected = true, fr = firstChip) { menu = null; onDetail(item.showKey) }
+                }
+                Chip("Mark watched") {
+                    menu = null
+                    scope.launch { api.setWatched(item.ratingKey, true); loadHome(api, home) }
+                }
+                Chip("Mark unwatched") {
+                    menu = null
+                    scope.launch { api.setWatched(item.ratingKey, false); loadHome(api, home) }
+                }
+                if (deck) {
+                    Chip("Remove from Continue Watching") {
+                        menu = null
+                        scope.launch { api.hideFromContinue(item.ratingKey); loadHome(api, home) }
                     }
                 }
             }
