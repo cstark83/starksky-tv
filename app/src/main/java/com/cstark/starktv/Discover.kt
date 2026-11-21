@@ -400,7 +400,10 @@ fun RequestScreen(api: PlexApi, ov: OverseerrApi, media: Media, onClose: () -> U
                 if (label.isNotEmpty()) Text(label, fontSize = 16.sp, color = Pal.Dim)
                 if (msg.isNotEmpty()) Text(msg, fontSize = 16.sp)
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    if (status < 2) {
+                    if (ov.restricted) {
+                        Chip("Back", fr = focus, onClick = onClose)
+                        Text("Requests are off for this profile.", fontSize = 16.sp, color = Pal.Dim)
+                    } else if (status < 2) {
                         Chip(if (busy) "Requesting…" else if (media.type == "tv") "Request all seasons" else "Request", fr = focus) {
                             if (!busy) {
                                 busy = true

@@ -98,6 +98,22 @@ class Prefs(ctx: Context) {
         return keys.size
     }
 
+    /** Kid profile (Plex Home user with a restrictionProfile, e.g. "older_kid"): no Discover, no requests. */
+    private val restrictedState = androidx.compose.runtime.mutableStateOf(sp.getBoolean("kid", false))
+    var restricted: Boolean
+        get() = restrictedState.value
+        set(v) { restrictedState.value = v; sp.edit().putBoolean("kid", v).apply() }
+
+    /** "time · thread · Exception: message" + first stack lines of the last crash (Settings), null = none. */
+    var lastCrash: String?
+        get() = sp.getString("crash", null)
+        set(v) { sp.edit().putString("crash", v).apply() }
+
+    /** Build number seen on the last start (0 = never started), for the "Updated to build N" label. */
+    var lastBuild: Int
+        get() = sp.getInt("lastbuild", 0)
+        set(v) { sp.edit().putInt("lastbuild", v).apply() }
+
     var weatherName: String
         get() = sp.getString("wname", "Columbia City") ?: "Columbia City"
         set(v) { sp.edit().putString("wname", v).apply() }
@@ -108,7 +124,9 @@ class Prefs(ctx: Context) {
         val subs = subsDefault
         val cel = celsius
         val daily = introDaily
+        val build = lastBuild
         lastSyncState.longValue = 0L
-        sp.edit().clear().putString("cid", cid).putInt("intro", style).putBoolean("subs", subs).putBoolean("celsius", cel).putBoolean("introDaily", daily).apply()
+        restrictedState.value = false
+        sp.edit().clear().putString("cid", cid).putInt("intro", style).putBoolean("subs", subs).putBoolean("celsius", cel).putBoolean("introDaily", daily).putInt("lastbuild", build).apply()
     }
 }

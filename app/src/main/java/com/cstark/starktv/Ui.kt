@@ -39,6 +39,9 @@ import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.key
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
@@ -76,6 +79,10 @@ fun Focusable(
     val accent = LocalAccent.current
     var focused by remember { mutableStateOf(false) }
     var longFired by remember { mutableStateOf(false) }
+    // hold-OK: timed from the first key-down with a coroutine (key repeats on the SHIELD remote are not relied on)
+    var okDown by remember { mutableStateOf(false) }
+    var holdJob by remember { mutableStateOf<Job?>(null) }
+    val scope = rememberCoroutineScope()
     val scale by animateFloatAsState(if (focused) scaleOnFocus else 1f, label = "focusScale")
     val shape = RoundedCornerShape(10.dp)
     var m = modifier.graphicsLayer { scaleX = scale; scaleY = scale }
@@ -83,22 +90,36 @@ fun Focusable(
     Box(
         m.onFocusChanged {
             focused = it.isFocused
+            if (!it.isFocused) {
+                // focus left (e.g. into the options menu): forget the press, its key-up goes elsewhere
+                holdJob?.cancel(); holdJob = null; okDown = false
+            }
             if (it.isFocused) onFocus?.invoke()
         }
             .clip(shape)
             .border(if (focused) 3.dp else 0.dp, if (focused) accent else Color.Transparent, shape)
+            // Before .clickable: with a long-press action, OK is handled here. A quick press (released before HOLD_OK_MS)
+            // clicks on key-up; held for HOLD_OK_MS it opens the menu, and that press's key-up never clicks.
             .onPreviewKeyEvent { e ->
-                val k = e.nativeKeyEvent.keyCode
-                if (onLongPress == null || (k != android.view.KeyEvent.KEYCODE_DPAD_CENTER && k != android.view.KeyEvent.KEYCODE_ENTER)) {
+                if (onLongPress == null || !isOkKey(e.key)) {
                     false
                 } else if (e.type == KeyEventType.KeyDown) {
-                    if (e.nativeKeyEvent.repeatCount > 0 && !longFired) {
-                        longFired = true
-                        onLongPress()
+                    if (!okDown) {
+                        okDown = true
+                        longFired = false
+                        holdJob = scope.launch {
+                            delay(HOLD_OK_MS)
+                            longFired = true
+                            onLongPress()
+                        }
                     }
                     true
                 } else if (e.type == KeyEventType.KeyUp) {
-                    if (longFired) longFired = false else onClick()
+                    val j = holdJob
+                    holdJob = null
+                    okDown = false
+                    if (j != null && j.isActive && !longFired) { j.cancel(); onClick() }
+                    longFired = false
                     true
                 } else {
                     false

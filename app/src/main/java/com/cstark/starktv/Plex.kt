@@ -60,7 +60,9 @@ data class Item(
 }
 
 data class Section(val key: String, val type: String, val title: String)
-data class Profile(val uuid: String, val title: String, val thumb: String?, val protected: Boolean, val admin: Boolean)
+/** [kid] = plex.tv home user with a non-empty "restrictionProfile" (e.g. "older_kid"). Not "restricted", which plex.tv also
+ *  sets for every managed user, adults included. */
+data class Profile(val uuid: String, val title: String, val thumb: String?, val protected: Boolean, val admin: Boolean, val kid: Boolean = false)
 data class Trailer(val title: String, val partKey: String)
 data class DetailData(
     val item: Item,
@@ -235,6 +237,7 @@ class PlexApi(private val prefs: Prefs) {
                 thumb = u.optString("thumb").ifEmpty { null },
                 protected = u.optBoolean("protected"),
                 admin = u.optBoolean("admin"),
+                kid = !u.isNull("restrictionProfile") && u.optString("restrictionProfile").isNotBlank(),
             )
         }
     }

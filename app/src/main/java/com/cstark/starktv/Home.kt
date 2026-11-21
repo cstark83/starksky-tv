@@ -55,7 +55,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.graphics.ColorUtils
@@ -138,7 +137,7 @@ fun TopBar(prefs: Prefs, home: HomeData, onSearch: () -> Unit, onProfile: () -> 
             home.sections.forEachIndexed { i, s -> Chip(s.title, home.tab == i + 1, compact = true) { home.tab = i + 1 } }
             Chip("Search", false, compact = true, onClick = onSearch)
             Chip("Spotify", false, compact = true, onClick = onSpotify)
-            Chip("Discover", home.tab == home.discoverTab, compact = true) { home.tab = home.discoverTab }
+            if (!prefs.restricted) Chip("Discover", home.tab == home.discoverTab, compact = true) { home.tab = home.discoverTab } // kid profiles: no Discover
             if (Updater.newBuild > 0) Chip("Update", false, compact = true) { home.tab = home.settingsTab }
             Chip("Settings", home.tab == home.settingsTab, compact = true) { home.tab = home.settingsTab }
         }
@@ -417,39 +416,25 @@ fun HomeScreen(
             )
         }
     }
+    // Options menu (hold OK for HOLD_OK_MS on a Home row): drawn over the screen, focus starts on the first option and
+    // stays inside; it stays open after OK is released and closes only when you pick an option or press Back.
     val m = menu
     if (m != null) {
         val (item, deck) = m
         val playable = item.type == "episode" || item.type == "movie"
-        Dialog(onDismissRequest = { menu = null }) {
-            val firstChip = remember { FocusRequester() }
-            LaunchedEffect(Unit) { runCatching { firstChip.requestFocus() } }
-            Column(
-                Modifier.width(380.dp).background(Color(0xEE14161C)).padding(24.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                Text(item.label, fontSize = 18.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                if (playable) {
-                    Chip(if (item.viewOffset > 0) "Resume" else "Play", selected = true, fr = firstChip) { menu = null; onPlay(item) }
-                    Chip("Details") { menu = null; onDetail(item.showKey) }
-                } else {
-                    Chip("Open", selected = true, fr = firstChip) { menu = null; onDetail(item.showKey) }
-                }
-                Chip("Mark watched") {
-                    menu = null
-                    scope.launch { api.setWatched(item.ratingKey, true); loadHome(api, home) }
-                }
-                Chip("Mark unwatched") {
-                    menu = null
-                    scope.launch { api.setWatched(item.ratingKey, false); loadHome(api, home) }
-                }
-                if (deck) {
-                    Chip("Remove from Continue Watching") {
-                        menu = null
-                        scope.launch { api.hideFromContinue(item.ratingKey); loadHome(api, home) }
-                    }
-                }
+        val opts = buildList<Pair<String, () -> Unit>> {
+            if (playable) {
+                add((if (item.viewOffset > 0) "Resume" else "Play") to { menu = null; onPlay(item) })
+                add("Details" to { menu = null; onDetail(item.showKey) })
+            } else {
+                add("Open" to { menu = null; onDetail(item.showKey) })
+            }
+            add("Mark watched" to { menu = null; scope.launch { api.setWatched(item.ratingKey, true); loadHome(api, home) }; Unit })
+            add("Mark unwatched" to { menu = null; scope.launch { api.setWatched(item.ratingKey, false); loadHome(api, home) }; Unit })
+            if (deck) {
+                add("Remove from Continue Watching" to { menu = null; scope.launch { api.hideFromContinue(item.ratingKey); loadHome(api, home) }; Unit })
             }
         }
+        HoldMenu(item.label, opts, onDismiss = { menu = null }, selected = 0)
     }
 }

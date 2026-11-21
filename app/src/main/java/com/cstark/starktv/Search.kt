@@ -139,7 +139,7 @@ fun SearchScreen(api: PlexApi, ov: OverseerrApi, onRequest: (Media) -> Unit, onO
                 verticalArrangement = Arrangement.spacedBy(20.dp),
             ) {
                 items(results, key = { "p" + it.ratingKey }) { item -> PosterCard(api, item, false) { onOpen(item) } }
-                if (requestable.isNotEmpty()) {
+                if (requestable.isNotEmpty() && !ov.restricted) { // kid profiles: no requests
                     item(key = "hdr", span = { GridItemSpan(maxLineSpan) }) {
                         Text("Not in your library — request it", fontSize = 18.sp, color = Pal.Dim, modifier = Modifier.padding(top = 8.dp))
                     }

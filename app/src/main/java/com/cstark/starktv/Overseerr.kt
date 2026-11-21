@@ -1,5 +1,6 @@
 package com.cstark.starktv
 
+import java.io.IOException
 import android.content.Context
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -127,7 +128,11 @@ class OverseerrApi(private val ctx: Context, private val prefs: Prefs) {
 
     private fun enc(s: String) = URLEncoder.encode(s, "UTF-8").replace("+", "%20")
 
+    /** Kid profile: every Overseerr call is refused (no Discover, no requests). */
+    val restricted: Boolean get() = prefs.restricted
+
     private fun call(method: String, path: String, body: String? = null): Pair<Int, String> {
+        if (prefs.restricted) throw IOException("Requests are off for this profile")
         val b = Request.Builder().url("$base/api/v1$path").header("Accept", "application/json")
         if (useKey) b.header("X-Api-Key", apiKey)
         val rb = body?.toRequestBody("application/json".toMediaType())
@@ -140,6 +145,10 @@ class OverseerrApi(private val ctx: Context, private val prefs: Prefs) {
 
     /** Finds Overseerr and signs in. Safe to call repeatedly. */
     suspend fun ensure(): Boolean = withContext(Dispatchers.IO) {
+        if (prefs.restricted) {
+            status = "Off for this profile (kid profile)"
+            return@withContext false
+        }
         if (loggedIn) return@withContext true
         val cfg = readOvConfig(ctx)
         apiKey = cfg.apiKey

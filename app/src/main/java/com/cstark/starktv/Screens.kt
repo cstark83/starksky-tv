@@ -53,7 +53,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -193,6 +195,7 @@ fun ProfilesScreen(api: PlexApi, prefs: Prefs, onDone: () -> Unit) {
             prefs.userToken = prefs.accountToken
             prefs.serverToken = null
             prefs.userName = "Me"
+            prefs.restricted = false
             onDone()
         } else {
             profiles = list
@@ -209,6 +212,7 @@ fun ProfilesScreen(api: PlexApi, prefs: Prefs, onDone: () -> Unit) {
                 prefs.userToken = tok
                 prefs.serverToken = api.serverAccessToken(tok)
                 prefs.userName = p.title
+                prefs.restricted = p.kid && !p.admin
                 onDone()
             } catch (e: Exception) {
                 error = if (p.protected && (e.message?.contains("401") == true || e.message?.contains("403") == true)) "Wrong PIN, try again" else (e.message ?: "Couldn't switch profile")
@@ -336,7 +340,8 @@ class HomeData {
     }
 }
 
-suspend fun loadHome(api: PlexApi, d: HomeData) {
+/** Loads the Home rows. Returns false when Plex couldn't be reached (the old rows, if any, stay on screen). */
+suspend fun loadHome(api: PlexApi, d: HomeData): Boolean {
     try {
         val secs = api.sections()
         d.sections = secs
@@ -390,10 +395,17 @@ suspend fun loadHome(api: PlexApi, d: HomeData) {
         d.rows = rows
         d.error = null
         d.lastSync = System.currentTimeMillis()
+        return true
     } catch (e: Exception) {
-        if (d.rows == null) d.error = e.message ?: "Couldn't load your library"
+        if (d.rows == null) d.error = RETRY_MSG
+        return false
     }
 }
+
+const val RETRY_MSG = "Can't reach Plex, retrying…"
+
+/** Wait before retry number [n] (1-based) after Plex couldn't be reached: 10 s for the first 5 tries, then 30 s. */
+fun retryDelayMs(n: Int) = if (n <= 5) 10_000L else 30_000L
 
 @Composable
 fun MainScreen(
@@ -414,8 +426,19 @@ fun MainScreen(
 ) {
     val ctx = LocalContext.current
     LaunchedEffect(Unit) { Updater.check(ctx) }
+    // Re-read the kid flag of the current profile (profiles picked before this build, or changed on plex.tv)
+    LaunchedEffect(Unit) {
+        val acct = prefs.accountToken
+        val me = prefs.userName
+        if (acct != null && me != null && me != "Me") {
+            val p = try { api.homeUsers(acct).firstOrNull { it.title == me } } catch (e: Exception) { null }
+            if (p != null) prefs.restricted = p.kid && !p.admin
+        }
+    }
     LaunchedEffect(refresh) {
-        loadHome(api, home)
+        // Plex not reachable on load: "Can't reach Plex, retrying…" and try again (10 s, after 5 tries 30 s) until it works
+        var n = 0
+        while (!loadHome(api, home) && home.rows == null) delay(retryDelayMs(++n))
         // keep in step with Plex (other devices, other apps) while this screen is open
         while (true) {
             delay(90_000)
@@ -423,6 +446,19 @@ fun MainScreen(
         }
     }
     LaunchedEffect(home.lastSync) { if (home.lastSync > 0) prefs.lastSync = home.lastSync }
+    // "Updated to build N": shown ~4 s after an update (not on the very first launch), then the new number is saved
+    var updatedTo by remember { mutableIntStateOf(0) }
+    LaunchedEffect(Unit) {
+        val cur = Updater.current(ctx)
+        val last = prefs.lastBuild
+        val firstEver = last == 0 && prefs.accountToken == null
+        if (!firstEver && cur > last) {
+            updatedTo = cur
+            delay(4000)
+            updatedTo = 0
+        }
+        prefs.lastBuild = cur
+    }
     BackHandler(enabled = home.tab != 0) { home.tab = 0 }
     LaunchedEffect(home.tab, home.rows != null, refresh) {
         if (home.tab == home.discoverTab && home.rows != null && home.discover == null) {
@@ -445,6 +481,19 @@ fun MainScreen(
                         else -> SettingsScreen(api, prefs, ov, onPreviewIntro, onSync, onSwitchProfile, onSignOut)
                     }
                 }
+            }
+            if (updatedTo > 0) {
+                // plain text, not focusable: never takes focus from Home
+                Text(
+                    "Updated to build $updatedTo",
+                    fontSize = 16.sp,
+                    color = Color.Black,
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(32.dp)
+                        .background(LocalAccent.current, RoundedCornerShape(8.dp))
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                )
             }
         }
     }
@@ -472,7 +521,15 @@ fun LibraryScreen(api: PlexApi, section: Section, refresh: Int, onOpen: (Item) -
     val targetFr = remember { FocusRequester() }
 
     LaunchedEffect(section.key, sort, refresh) {
-        try { items = api.library(section, sort); err = null } catch (e: Exception) { err = e.message }
+        // same retry as Home: 10 s, after 5 tries 30 s, until the library loads (leaving the tab or Back stops it)
+        var n = 0
+        while (true) {
+            try { items = api.library(section, sort); err = null; break } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                if (items == null) err = RETRY_MSG
+                delay(retryDelayMs(++n))
+            }
+        }
     }
 
     Column(Modifier.fillMaxSize()) {
@@ -637,7 +694,15 @@ fun SettingsScreen(
         }
         if (Updater.status.isNotBlank()) Text(Updater.status, fontSize = 14.sp, color = Pal.Dim)
         Text("Last update check: ${prefs.lastUpdateCheck ?: "never"}", fontSize = 14.sp, color = Pal.Dim)
+        Text("Current build: ${Updater.current(ctx)}", fontSize = 14.sp, color = Pal.Dim)
         Text("Last playback error: ${prefs.lastPlayError ?: "None"}", fontSize = 14.sp, color = Pal.Dim)
+        var crash by remember { mutableStateOf(prefs.lastCrash) }
+        Text("Last crash: ${crash?.lineSequence()?.firstOrNull() ?: "None"}", fontSize = 14.sp, color = Pal.Dim)
+        if (crash != null) Chip("Clear crash log") { prefs.lastCrash = null; crash = null }
+        // Watch history backup (Tower watch ledger, status.json on the LAN): short timeout, loaded in the background
+        var backup by remember { mutableStateOf("Watch history backup: checking…") }
+        LaunchedEffect(Unit) { backup = watchBackupLine() }
+        Text(backup, fontSize = 14.sp, color = Pal.Dim)
         var forgot by remember { mutableStateOf<String?>(null) }
         Chip("Forget track choices") {
             val n = prefs.forgetTracks()
@@ -832,5 +897,25 @@ fun EpisodeRow(api: PlexApi, ep: Item, onClick: () -> Unit, onToggle: () -> Unit
             }
         }
         Chip(if (ep.viewCount > 0) "Watched ✓" else "Mark watched", ep.viewCount > 0, onClick = onToggle)
+    }
+}
+
+/** Tower's watch-ledger status (numbers only), served read-only on the LAN. */
+const val WATCH_STATUS_URL = "http://192.168.1.8:8479/status.json"
+
+/** "Watch history backup: last export <time>: N items protected, M kept for deleted titles", or that it can't be reached. Never throws. */
+suspend fun watchBackupLine(): String = withContext(Dispatchers.IO) {
+    try {
+        val c = java.net.URL(WATCH_STATUS_URL).openConnection() as java.net.HttpURLConnection
+        c.connectTimeout = 3000
+        c.readTimeout = 3000
+        val txt = try { c.inputStream.bufferedReader().use { it.readText() } } finally { c.disconnect() }
+        val j = org.json.JSONObject(txt)
+        val t = j.optLong("ledger_last_ok", 0L)
+        val time = if (t > 0) SimpleDateFormat("MMM d, h:mm a", Locale.getDefault()).format(Date(t * 1000)) else "never"
+        "Watch history backup: Last export $time: ${j.optInt("items_protected")} items protected, " +
+            "${j.optInt("kept_not_in_library")} kept for deleted titles"
+    } catch (e: Throwable) {
+        "Watch history backup: Can't reach backup status"
     }
 }
