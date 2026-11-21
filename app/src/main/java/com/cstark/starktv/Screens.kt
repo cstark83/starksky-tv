@@ -2,6 +2,8 @@ package com.cstark.starktv
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -470,7 +472,7 @@ fun SettingsScreen(
     var celsius by remember { mutableStateOf(prefs.celsius) }
     var daily by remember { mutableStateOf(prefs.introDaily) }
     val ctx = LocalContext.current
-    Column(Modifier.padding(48.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+    Column(Modifier.verticalScroll(rememberScrollState()).padding(48.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Text("Profile: ${prefs.userName ?: "—"}", fontSize = 18.sp)
         Text("Server: ${prefs.serverName ?: "—"}  (${api.base})", fontSize = 14.sp, color = Pal.Dim)
         Chip("Subtitles on by default: ${if (subs) "On" else "Off"}") {

@@ -111,7 +111,7 @@ fun WeatherBlock(prefs: Prefs) {
             fontWeight = FontWeight.Light,
         )
         Text(
-            if (w == null) prefs.weatherName else "${prefs.weatherName} · ${w.label}",
+            if (w == null) "" else w.label,
             fontSize = 14.sp,
             color = Pal.Dim,
         )
@@ -127,7 +127,7 @@ fun TopBar(prefs: Prefs, home: HomeData, onSearch: () -> Unit, onSpotify: () -> 
         ClockBlock()
         Row(
             Modifier.weight(1f).padding(top = 8.dp).padding(horizontal = 12.dp).horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             Chip("Home", home.tab == 0, compact = true) { home.tab = 0 }
             home.sections.forEachIndexed { i, s -> Chip(s.title, home.tab == i + 1, compact = true) { home.tab = i + 1 } }

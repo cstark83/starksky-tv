@@ -94,7 +94,7 @@ fun Chip(
         Box(
             (if (fill) Modifier.fillMaxSize() else Modifier)
                 .background(if (f) Color.White else if (selected) accent else Color(0x33FFFFFF))
-                .padding(horizontal = if (compact) 14.dp else 20.dp, vertical = if (compact) 8.dp else 10.dp),
+                .padding(horizontal = if (compact) 10.dp else 20.dp, vertical = if (compact) 8.dp else 10.dp),
             contentAlignment = Alignment.Center,
         ) {
             Text(
