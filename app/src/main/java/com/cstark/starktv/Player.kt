@@ -2,6 +2,7 @@ package com.cstark.starktv
 
 import android.net.Uri
 import androidx.compose.foundation.background
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -17,6 +18,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -146,9 +154,80 @@ fun PlayerScreen(
         }
     }
 
-    LaunchedEffect(playerView) { playerView?.requestFocus() }
+    // The screen itself holds focus so the remote always works. PlayerView only takes focus while
+    // you're moving around its control bar (Up/Down opens it); when the bar hides, focus comes back here.
+    val rootFocus = remember { FocusRequester() }
+    var skipFocused by remember { mutableStateOf(false) }
+    var heldKey by remember { mutableStateOf<Key?>(null) }
+    var lastRepeatSeek by remember { mutableLongStateOf(0L) }
+    LaunchedEffect(Unit) { runCatching { rootFocus.requestFocus() } }
 
-    Box(Modifier.fillMaxSize().background(Color.Black)) {
+    fun showControls() { playerView?.showController() } // also restarts the 4 s auto-hide timer
+    fun seekBy(ms: Long) {
+        val dur = player.duration
+        var to = (player.currentPosition + ms).coerceAtLeast(0L)
+        if (dur != C.TIME_UNSET && dur > 0) to = to.coerceAtMost(dur)
+        player.seekTo(to)
+        showControls()
+    }
+    fun togglePlay() {
+        if (player.isPlaying) player.pause() else player.play()
+        showControls()
+    }
+
+    val i = info
+    val showSkip = i != null && i.introStart >= 0 && i.introEnd > i.introStart && posMs >= i.introStart && posMs < i.introEnd
+    // Skip Intro vanishing while focused would leave nothing focused: take focus back.
+    LaunchedEffect(showSkip) { if (!showSkip) runCatching { rootFocus.requestFocus() } }
+
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(Color.Black)
+            .onPreviewKeyEvent { e ->
+                val k = e.key
+                val dpad = k == Key.DirectionCenter || k == Key.Enter || k == Key.NumPadEnter ||
+                    k == Key.DirectionLeft || k == Key.DirectionRight || k == Key.DirectionUp || k == Key.DirectionDown
+                val media = k == Key.MediaPlayPause || k == Key.MediaPlay || k == Key.MediaPause ||
+                    k == Key.MediaRewind || k == Key.MediaFastForward
+                if (!dpad && !media) return@onPreviewKeyEvent false // Back, volume, etc. untouched
+                // Control bar open with focus in it: let its buttons (CC, settings, seek bar) take the D-pad.
+                if (dpad && playerView?.hasFocus() == true) return@onPreviewKeyEvent false
+                // OK on Skip Intro presses the chip, not play/pause.
+                val ok = k == Key.DirectionCenter || k == Key.Enter || k == Key.NumPadEnter
+                if (ok && skipFocused) return@onPreviewKeyEvent false
+                when (e.type) {
+                    KeyEventType.KeyDown -> {
+                        val repeat = heldKey == k
+                        heldKey = k
+                        when (k) {
+                            Key.DirectionCenter, Key.Enter, Key.NumPadEnter, Key.MediaPlayPause -> if (!repeat) togglePlay()
+                            Key.MediaPlay -> { player.play(); showControls() }
+                            Key.MediaPause -> { player.pause(); showControls() }
+                            Key.DirectionLeft, Key.MediaRewind, Key.DirectionRight, Key.MediaFastForward -> {
+                                val back = k == Key.DirectionLeft || k == Key.MediaRewind
+                                val now = System.currentTimeMillis()
+                                if (!repeat) {
+                                    seekBy(if (back) -10_000L else 10_000L)
+                                } else if (now - lastRepeatSeek >= 250) {
+                                    // held down: bigger 30 s steps, a few per second
+                                    lastRepeatSeek = now
+                                    seekBy(if (back) -30_000L else 30_000L)
+                                }
+                            }
+                            Key.DirectionUp, Key.DirectionDown -> {
+                                showControls()
+                                playerView?.requestFocus() // into the control bar's buttons
+                            }
+                        }
+                    }
+                    KeyEventType.KeyUp -> if (heldKey == k) heldKey = null
+                }
+                true
+            }
+            .focusRequester(rootFocus)
+            .focusable(),
+    ) {
         AndroidView(
             factory = { c ->
                 val exo = player
@@ -160,18 +239,22 @@ fun PlayerScreen(
                     keepScreenOn = true
                     isFocusable = true
                     isFocusableInTouchMode = true
+                    setControllerVisibilityListener(
+                        PlayerView.ControllerVisibilityListener { v ->
+                            if (v != android.view.View.VISIBLE && hasFocus()) runCatching { rootFocus.requestFocus() }
+                        },
+                    )
                     playerView = this
                 }
             },
             modifier = Modifier.fillMaxSize(),
         )
 
-        val i = info
-        if (i != null && i.introStart >= 0 && i.introEnd > i.introStart && posMs >= i.introStart && posMs < i.introEnd) {
-            Box(Modifier.align(Alignment.BottomEnd).padding(48.dp, 48.dp, 48.dp, 110.dp)) {
+        if (showSkip && i != null) {
+            Box(Modifier.align(Alignment.BottomEnd).padding(48.dp, 48.dp, 48.dp, 110.dp).onFocusChanged { skipFocused = it.hasFocus }) {
                 Chip("Skip Intro", fr = introFocus) {
                     player.seekTo(i.introEnd)
-                    playerView?.requestFocus()
+                    runCatching { rootFocus.requestFocus() }
                 }
             }
             LaunchedEffect(Unit) { runCatching { introFocus.requestFocus() } }
