@@ -139,10 +139,11 @@ fun Chip(
     fill: Boolean = false,
     fr: FocusRequester? = null,
     compact: Boolean = false,
+    onLongPress: (() -> Unit)? = null,
     onClick: () -> Unit,
 ) {
     val accent = LocalAccent.current
-    Focusable(modifier, fr, 1.05f, onClick) { f ->
+    Focusable(modifier, fr, 1.05f, onClick, onLongPress = onLongPress) { f ->
         Box(
             (if (fill) Modifier.fillMaxSize() else Modifier)
                 .background(if (f) Color.White else if (selected) accent else Color(0x33FFFFFF))
@@ -227,6 +228,37 @@ fun PosterCard(
 
 /** How long OK/Select must be held to open an options menu (player sleep timer, title options). */
 const val HOLD_OK_MS = 3000L
+
+/**
+ * One hold-OK menu for a screen (Library grid, title page). `open(...)` shows [HoldMenu] with the given options; picking
+ * one closes the menu first and then runs it. On close (Back, or an option that stays on this screen) focus goes back to
+ * [returnTo], the card or button that was held, so the grid/list position and the A-Z index keep working.
+ */
+class HoldMenuState {
+    var title by mutableStateOf("")
+        private set
+    var options by mutableStateOf<List<Pair<String, () -> Unit>>?>(null)
+        private set
+    private var returnTo: FocusRequester? = null
+    var restore by mutableStateOf(0)
+        private set
+    fun open(title: String, options: List<Pair<String, () -> Unit>>, returnTo: FocusRequester?) {
+        this.title = title; this.returnTo = returnTo; this.options = options
+    }
+    fun close() { options = null; restore++ }
+    fun refocus() { returnTo?.let { r -> runCatching { r.requestFocus() } } }
+}
+
+@Composable
+fun rememberHoldMenu() = remember { HoldMenuState() }
+
+/** Draws the menu of [s] when it is open; place it last in a full-screen Box so it covers the screen. */
+@Composable
+fun HoldMenuHost(s: HoldMenuState) {
+    LaunchedEffect(s.restore) { if (s.restore > 0) { delay(50); s.refocus() } }
+    val opts = s.options ?: return
+    HoldMenu(s.title, opts.map { (label, act) -> label to { s.close(); act() } }, onDismiss = { s.close() }, selected = 0)
+}
 
 fun isOkKey(k: Key) = k == Key.DirectionCenter || k == Key.Enter || k == Key.NumPadEnter
 

@@ -476,7 +476,7 @@ fun MainScreen(
                     val t = home.tab
                     when {
                         t == 0 -> HomeScreen(api, home, ov, onDetail, onPlay, onNowPlaying, onRequest)
-                        t <= home.sections.size -> LibraryScreen(api, home.sections[t - 1], refresh) { onDetail(it.showKey) }
+                        t <= home.sections.size -> LibraryScreen(api, home.sections[t - 1], refresh, onPlay) { onDetail(it.showKey) }
                         t == home.discoverTab -> DiscoverScreen(home, ov, onRequest)
                         else -> SettingsScreen(api, prefs, ov, onPreviewIntro, onSync, onSwitchProfile, onSignOut)
                     }
@@ -510,7 +510,7 @@ private fun azLetter(item: Item): Char {
 }
 
 @Composable
-fun LibraryScreen(api: PlexApi, section: Section, refresh: Int, onOpen: (Item) -> Unit) {
+fun LibraryScreen(api: PlexApi, section: Section, refresh: Int, onPlay: (Item) -> Unit, onOpen: (Item) -> Unit) {
     var sort by rememberSaveable(section.key) { mutableStateOf("titleSort:asc") }
     var items by remember(section.key, sort) { mutableStateOf<List<Item>?>(null) }
     var err by remember { mutableStateOf<String?>(null) }
@@ -519,6 +519,40 @@ fun LibraryScreen(api: PlexApi, section: Section, refresh: Int, onOpen: (Item) -
     // The grid item focus returns to when you press Left from the A–Z column (last focused, or last jumped to).
     var target by remember(section.key, sort) { mutableIntStateOf(0) }
     val targetFr = remember { FocusRequester() }
+    // hold OK on a poster: options menu (same HoldMenu / HOLD_OK_MS as Home); focus returns to the poster (targetFr) on close
+    val menu = rememberHoldMenu()
+    var wlKeys by remember(section.key) { mutableStateOf<Set<String>>(emptySet()) }
+    LaunchedEffect(section.key) { wlKeys = api.watchlist().map { it.ratingKey }.toSet() }
+    fun setSeen(item: Item, watched: Boolean) {
+        scope.launch {
+            if (api.setWatched(item.ratingKey, watched)) {
+                // update the card in place (no reload), so the grid keeps its scroll position and focus
+                items = items?.map { if (it.ratingKey == item.ratingKey) it.copy(viewCount = if (watched) 1 else 0, viewOffset = 0L) else it }
+            }
+        }
+    }
+    fun openMenu(item: Item) {
+        val playable = item.type == "movie" || item.type == "episode"
+        val dkey = item.guid?.takeIf { it.startsWith("plex://") }?.substringAfterLast("/")
+        val opts = buildList<Pair<String, () -> Unit>> {
+            if (playable) {
+                add((if (item.viewOffset > 0) "Resume" else "Play") to { onPlay(item) })
+                add("Details" to { onOpen(item) })
+            } else {
+                add("Open" to { onOpen(item) })
+            }
+            add((if (playable) "Mark watched" else "Mark show watched") to { setSeen(item, true) })
+            add((if (playable) "Mark unwatched" else "Mark show unwatched") to { setSeen(item, false) })
+            if (dkey != null) {
+                val on = dkey in wlKeys
+                add((if (on) "Remove from Watchlist" else "Add to Watchlist") to {
+                    scope.launch { if (api.setWatchlist(dkey, !on)) wlKeys = if (on) wlKeys - dkey else wlKeys + dkey }
+                    Unit
+                })
+            }
+        }
+        menu.open(item.label, opts, targetFr)
+    }
 
     LaunchedEffect(section.key, sort, refresh) {
         // same retry as Home: 10 s, after 5 tries 30 s, until the library loads (leaving the tab or Back stops it)
@@ -532,6 +566,7 @@ fun LibraryScreen(api: PlexApi, section: Section, refresh: Int, onOpen: (Item) -
         }
     }
 
+    Box(Modifier.fillMaxSize()) {
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.padding(horizontal = 48.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Chip("A–Z", sort == "titleSort:asc") { sort = "titleSort:asc" }
@@ -561,7 +596,7 @@ fun LibraryScreen(api: PlexApi, section: Section, refresh: Int, onOpen: (Item) -
                 ) {
                     gridItemsIndexed(list) { i, item ->
                         Box(if (i == target) Modifier.focusRequester(targetFr) else Modifier) {
-                            PosterCard(api, item, false, onFocus = { target = i }) { onOpen(item) }
+                            PosterCard(api, item, false, onFocus = { target = i }, onLongPress = { target = i; openMenu(item) }) { onOpen(item) }
                         }
                     }
                 }
@@ -573,6 +608,8 @@ fun LibraryScreen(api: PlexApi, section: Section, refresh: Int, onOpen: (Item) -
                 }
             }
         }
+    }
+    HoldMenuHost(menu)
     }
 }
 
@@ -747,6 +784,8 @@ fun DetailScreen(
     var err by remember { mutableStateOf<String?>(null) }
     var season by remember { mutableIntStateOf(Int.MIN_VALUE) }
     val playFocus = remember { FocusRequester() }
+    // hold OK on the Play button, a season or an episode: options menu (same HoldMenu / HOLD_OK_MS as Home)
+    val menu = rememberHoldMenu()
 
     LaunchedEffect(key, refresh, reload) {
         try {
@@ -779,6 +818,50 @@ fun DetailScreen(
     val target: Item? = if (isShow) (nextUp(d.episodes) ?: d.episodes.firstOrNull()) else top
     val resume = target != null && target.viewOffset > 0
     val seasons = d.episodes.map { it.parentIndex }.distinct().sorted()
+    val dkey = top.guid?.takeIf { it.startsWith("plex://") }?.substringAfterLast("/")
+    fun toggleWatchlist() {
+        if (dkey == null) return
+        val on = dkey in wlKeys
+        scope.launch { if (api.setWatchlist(dkey, !on)) wlKeys = if (on) wlKeys - dkey else wlKeys + dkey }
+    }
+    // Play button: play / start over / watched state of what it plays and of the whole title / Watchlist
+    fun titleMenu() {
+        val t = target ?: return
+        val code = if (isShow) " ${t.epCode}" else ""
+        val opts = buildList<Pair<String, () -> Unit>> {
+            add((if (resume) "Resume$code" else "Play$code") to { onPlay(t, true) })
+            if (resume) add("Start over" to { onPlay(t, false) })
+            if (isShow) {
+                add((if (t.viewCount > 0) "Mark${code} unwatched" else "Mark${code} watched") to { mark(t.ratingKey, t.viewCount == 0) })
+                add("Mark show watched" to { mark(top.ratingKey, true) })
+                add("Mark show unwatched" to { mark(top.ratingKey, false) })
+            } else {
+                add((if (top.viewCount > 0) "Mark unwatched" else "Mark watched") to { mark(top.ratingKey, top.viewCount == 0) })
+            }
+            if (dkey != null) add((if (dkey in wlKeys) "Remove from Watchlist" else "Add to Watchlist") to { toggleWatchlist() })
+        }
+        menu.open(top.title, opts, playFocus)
+    }
+    fun seasonMenu(sn: Int, fr: FocusRequester) {
+        val inSeason = d.episodes.filter { it.parentIndex == sn }
+        val sk = inSeason.firstOrNull()?.parentRatingKey ?: return
+        val name = if (sn == 0) "Specials" else "Season $sn"
+        val opts = buildList<Pair<String, () -> Unit>> {
+            nextUp(inSeason)?.let { e -> add((if (e.viewOffset > 0) "Resume ${e.epCode}" else "Play ${e.epCode}") to { onPlay(e, true) }) }
+            add("Mark $name watched" to { mark(sk, true) })
+            add("Mark $name unwatched" to { mark(sk, false) })
+        }
+        menu.open("${top.title} · $name", opts, fr)
+    }
+    fun episodeMenu(ep: Item, fr: FocusRequester) {
+        val opts = buildList<Pair<String, () -> Unit>> {
+            add((if (ep.viewOffset > 0) "Resume" else "Play") to { onPlay(ep, true) })
+            if (ep.viewOffset > 0) add("Start over" to { onPlay(ep, false) })
+            add((if (ep.viewCount > 0) "Mark unwatched" else "Mark watched") to { mark(ep.ratingKey, ep.viewCount == 0) })
+            if (dkey != null) add((if (dkey in wlKeys) "Remove show from Watchlist" else "Add show to Watchlist") to { toggleWatchlist() })
+        }
+        menu.open("${ep.epCode} · ${ep.title}", opts, fr)
+    }
 
     Box(Modifier.fillMaxSize()) {
         AsyncImage(
@@ -815,6 +898,7 @@ fun DetailScreen(
                                 Chip(
                                     if (resume) "▶ Resume$code  ${fmtTime(target.viewOffset)}" else "▶ Play$code",
                                     fr = playFocus,
+                                    onLongPress = { titleMenu() },
                                 ) { onPlay(target, true) }
                                 if (resume) Chip("Start over") { onPlay(target, false) }
                             }
@@ -832,14 +916,8 @@ fun DetailScreen(
                                 val seen = top.viewCount > 0
                                 Chip(if (seen) "Mark unwatched" else "Mark watched") { mark(top.ratingKey, !seen) }
                             }
-                            val dkey = top.guid?.takeIf { it.startsWith("plex://") }?.substringAfterLast("/")
                             if (dkey != null) {
-                                val on = dkey in wlKeys
-                                Chip(if (on) "Remove from Watchlist" else "Add to Watchlist") {
-                                    scope.launch {
-                                        if (api.setWatchlist(dkey, !on)) wlKeys = if (on) wlKeys - dkey else wlKeys + dkey
-                                    }
-                                }
+                                Chip(if (dkey in wlKeys) "Remove from Watchlist" else "Add to Watchlist") { toggleWatchlist() }
                             }
                         }
                     }
@@ -852,7 +930,8 @@ fun DetailScreen(
                         modifier = Modifier.padding(top = 20.dp),
                     ) {
                         items(seasons) { sn ->
-                            Chip(if (sn == 0) "Specials" else "Season $sn", season == sn) { season = sn }
+                            val fr = remember { FocusRequester() }
+                            Chip(if (sn == 0) "Specials" else "Season $sn", season == sn, fr = fr, onLongPress = { seasonMenu(sn, fr) }) { season = sn }
                         }
                         item {
                             val inSeason = d.episodes.filter { it.parentIndex == season }
@@ -865,17 +944,26 @@ fun DetailScreen(
                     }
                 }
                 items(d.episodes.filter { it.parentIndex == season }, key = { it.ratingKey }) { ep ->
-                    EpisodeRow(api, ep, onClick = { onPlay(ep, true) }, onToggle = { mark(ep.ratingKey, ep.viewCount == 0) })
+                    val fr = remember { FocusRequester() }
+                    EpisodeRow(api, ep, fr, onClick = { onPlay(ep, true) }, onLongPress = { episodeMenu(ep, fr) }, onToggle = { mark(ep.ratingKey, ep.viewCount == 0) })
                 }
             }
         }
+        HoldMenuHost(menu)
     }
 }
 
 @Composable
-fun EpisodeRow(api: PlexApi, ep: Item, onClick: () -> Unit, onToggle: () -> Unit) {
+fun EpisodeRow(
+    api: PlexApi,
+    ep: Item,
+    fr: FocusRequester? = null,
+    onClick: () -> Unit,
+    onLongPress: (() -> Unit)? = null,
+    onToggle: () -> Unit,
+) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        Focusable(Modifier.weight(1f), scaleOnFocus = 1.02f, onClick = onClick) { f ->
+        Focusable(Modifier.weight(1f), fr = fr, scaleOnFocus = 1.02f, onClick = onClick, onLongPress = onLongPress) { f ->
             Row(
                 Modifier.fillMaxWidth().background(if (f) Color(0xFF2A2A33) else Color(0xFF16161B)).padding(8.dp),
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
