@@ -1,5 +1,6 @@
 package com.cstark.starktv
 
+import androidx.annotation.OptIn
 import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
@@ -31,7 +32,7 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.unit.dp
@@ -64,6 +65,12 @@ private const val NEXT_COUNTDOWN_S = 10
 
 /** With no Plex credits marker, the countdown starts this long before the end. */
 private const val NO_CREDITS_LEAD_MS = 30_000L
+/** Rewind step: one tap of Left/Rewind and the control bar rewind button (user asked 15 s). */
+private const val REWIND_MS = 15_000L
+/** Fast-forward step for one tap of Right/Fast-forward (control bar keeps ExoPlayer's 15 s). */
+private const val FORWARD_MS = 10_000L
+/** Held Left/Right: bigger steps, a few per second. */
+private const val HELD_SEEK_MS = 30_000L
 
 /**
  * Direct-plays the original file (no transcoding). Embedded and sidecar subtitles + audio tracks
@@ -82,7 +89,7 @@ fun PlayerScreen(
 ) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
-    val player = remember { ExoPlayer.Builder(ctx).build() }
+    val player = remember { ExoPlayer.Builder(ctx).setSeekBackIncrementMs(REWIND_MS).build() }
     var info by remember { mutableStateOf<PlayInfo?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var posMs by remember { mutableLongStateOf(0L) }
@@ -427,11 +434,11 @@ fun PlayerScreen(
                                 val back = k == Key.DirectionLeft || k == Key.MediaRewind
                                 val now = System.currentTimeMillis()
                                 if (!repeat) {
-                                    seekBy(if (back) -10_000L else 10_000L)
+                                    seekBy(if (back) -REWIND_MS else FORWARD_MS)
                                 } else if (now - lastRepeatSeek >= 250) {
                                     // held down: bigger 30 s steps, a few per second
                                     lastRepeatSeek = now
-                                    seekBy(if (back) -30_000L else 30_000L)
+                                    seekBy(if (back) -HELD_SEEK_MS else HELD_SEEK_MS)
                                 }
                             }
                             Key.DirectionUp, Key.DirectionDown -> {
@@ -496,7 +503,7 @@ fun PlayerScreen(
             )
         }
 
-        if (showSkip && i != null) {
+        if (showSkip) {
             Box(Modifier.align(Alignment.BottomEnd).padding(48.dp, 48.dp, 48.dp, 110.dp).onFocusChanged { skipFocused = it.hasFocus }) {
                 Chip("Skip Intro", fr = introFocus) {
                     player.seekTo(i.introEnd)
