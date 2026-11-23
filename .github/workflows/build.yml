@@ -39,6 +39,14 @@ jobs:
             awk '/^apikey=/ { print "apikey=" ENVIRON["OVERSEERR_API_KEY"]; next } { print }' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
           fi
 
+      - name: Add signing key (repo secret STARKSKY_KEYSTORE_B64, required)
+        env:
+          KS: ${{ secrets.STARKSKY_KEYSTORE_B64 }}
+        run: |
+          # Same key on every build, so each build installs over the old one. The key is not in git (2026-11-23).
+          if [ -z "$KS" ]; then echo "secret STARKSKY_KEYSTORE_B64 is missing"; exit 1; fi
+          printf '%s' "$KS" | base64 -d > app/starksky-debug.keystore
+
       - name: Build debug APK
         run: gradle assembleDebug -PbuildNumber=${{ github.run_number }} --no-daemon
 

@@ -3,3 +3,6 @@ build/
 local.properties
 *.iml
 .idea/
+# signing key: GitHub secret STARKSKY_KEYSTORE_B64 + encrypted backup (2026-11-23), never in git
+*.keystore
+*.jks
