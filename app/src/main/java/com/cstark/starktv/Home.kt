@@ -98,31 +98,49 @@ fun ClockBlock() {
     }
 }
 
+/** Temperature + conditions, top right. Focusable: OK (a normal press, no hold menu) opens the weather page. */
 @Composable
-fun WeatherBlock(prefs: Prefs) {
+fun WeatherBlock(prefs: Prefs, onOpen: () -> Unit) {
+    val fr = remember { FocusRequester() }
     LaunchedEffect(Unit) {
+        loadCachedWeather(prefs) // last saved answer at once
         while (true) {
-            fetchWeather(prefs.weatherLat, prefs.weatherLon)?.let { WeatherState.weather = it }
+            if (System.currentTimeMillis() - WeatherState.lastFetch > 10 * 60_000L) refreshWeather(prefs)
             delay(20 * 60_000L)
         }
     }
+    // back from the weather page: focus returns here (HomeScreen skips its first-row focus while this is set)
+    LaunchedEffect(Unit) {
+        if (WeatherState.returnFocus) {
+            delay(150)
+            runCatching { fr.requestFocus() }
+            WeatherState.returnFocus = false
+        }
+    }
     val w = WeatherState.weather
-    Column(horizontalAlignment = Alignment.End) {
-        Text(
-            if (w == null) "—" else w.temp(prefs.celsius),
-            fontSize = 34.sp,
-            fontWeight = FontWeight.Light,
-        )
-        Text(
-            if (w == null) "" else w.label,
-            fontSize = 14.sp,
-            color = Pal.Dim,
-        )
+    Focusable(fr = fr, scaleOnFocus = 1.06f, onClick = onOpen) { f ->
+        Column(
+            Modifier
+                .background(if (f) Color(0x33FFFFFF) else Color.Transparent)
+                .padding(horizontal = 10.dp, vertical = 2.dp),
+            horizontalAlignment = Alignment.End,
+        ) {
+            Text(
+                if (w == null) "—" else w.temp(prefs.celsius),
+                fontSize = 34.sp,
+                fontWeight = FontWeight.Light,
+            )
+            Text(
+                if (w == null) "" else w.label,
+                fontSize = 14.sp,
+                color = if (f) Color.White else Pal.Dim,
+            )
+        }
     }
 }
 
 @Composable
-fun TopBar(prefs: Prefs, home: HomeData, onSearch: () -> Unit, onProfile: () -> Unit, onSpotify: () -> Unit) {
+fun TopBar(prefs: Prefs, home: HomeData, onSearch: () -> Unit, onProfile: () -> Unit, onWeather: () -> Unit, onSpotify: () -> Unit) {
     Row(
         Modifier.fillMaxWidth().padding(horizontal = 48.dp, vertical = 14.dp),
         verticalAlignment = Alignment.Top,
@@ -141,7 +159,7 @@ fun TopBar(prefs: Prefs, home: HomeData, onSearch: () -> Unit, onProfile: () -> 
             if (Updater.newBuild > 0) Chip("Update", false, compact = true) { home.tab = home.settingsTab }
             Chip("Settings", home.tab == home.settingsTab, compact = true) { home.tab = home.settingsTab }
         }
-        WeatherBlock(prefs)
+        WeatherBlock(prefs, onWeather)
     }
 }
 
@@ -326,7 +344,7 @@ fun HomeScreen(
     }
     LaunchedEffect(rows.size) {
         if (home.selected == null) home.selected = rows.first().items.first()
-        runCatching { first.requestFocus() }
+        if (!WeatherState.returnFocus) runCatching { first.requestFocus() } // coming back from the weather page: the widget takes focus
     }
     // Kept in HomeData (not rememberLazyListState) so the scroll position survives opening a title.
     val listState = home.listState

@@ -423,6 +423,7 @@ fun MainScreen(
     onSync: () -> Unit,
     onSwitchProfile: () -> Unit,
     onSignOut: () -> Unit,
+    onWeather: () -> Unit,
 ) {
     val ctx = LocalContext.current
     LaunchedEffect(Unit) { Updater.check(ctx) }
@@ -471,7 +472,7 @@ fun MainScreen(
         Box(Modifier.fillMaxSize()) {
             if (home.tab == 0) HeroBackground(api, home.selected)
             Column(Modifier.fillMaxSize()) {
-                TopBar(prefs, home, onSearch, onSwitchProfile) { openSpotify(ctx) }
+                TopBar(prefs, home, onSearch, onSwitchProfile, onWeather) { openSpotify(ctx) }
                 Box(Modifier.weight(1f).fillMaxWidth()) {
                     val t = home.tab
                     when {

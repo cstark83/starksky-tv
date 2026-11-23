@@ -29,6 +29,7 @@ sealed class Screen {
     object Main : Screen()
     object NowPlaying : Screen()
     object Search : Screen()
+    object Weather : Screen()
     data class Request(val media: Media) : Screen()
     data class Detail(val key: String) : Screen()
 
@@ -154,7 +155,10 @@ fun App(api: PlexApi, prefs: Prefs) {
             onSync = { refresh++ },
             onSwitchProfile = { switchProfile() },
             onSignOut = { signOut() },
+            onWeather = { WeatherState.returnFocus = true; stack.add(Screen.Weather) },
         )
+
+        Screen.Weather -> WeatherScreen(prefs)
 
         Screen.NowPlaying -> NowPlayingScreen { pop() }
 

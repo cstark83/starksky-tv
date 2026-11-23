@@ -114,6 +114,15 @@ class Prefs(ctx: Context) {
         get() = sp.getInt("lastbuild", 0)
         set(v) { sp.edit().putInt("lastbuild", v).apply() }
 
+    /** Last Open-Meteo answer (raw JSON) and when it was fetched, so the weather shows at once after a restart. */
+    var weatherCache: String?
+        get() = sp.getString("wcache", null)
+        set(v) { sp.edit().putString("wcache", v).apply() }
+
+    var weatherCacheAt: Long
+        get() = sp.getLong("wcacheAt", 0L)
+        set(v) { sp.edit().putLong("wcacheAt", v).apply() }
+
     var weatherName: String
         get() = sp.getString("wname", "Columbia City") ?: "Columbia City"
         set(v) { sp.edit().putString("wname", v).apply() }
