@@ -1,5 +1,6 @@
 package com.cstark.starktv
 
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -142,10 +143,11 @@ fun Chip(
     fr: FocusRequester? = null,
     compact: Boolean = false,
     onLongPress: (() -> Unit)? = null,
+    onFocus: (() -> Unit)? = null,
     onClick: () -> Unit,
 ) {
     val accent = LocalAccent.current
-    Focusable(modifier, fr, 1.05f, onClick, onLongPress = onLongPress) { f ->
+    Focusable(modifier, fr, 1.05f, onClick, onFocus, onLongPress) { f ->
         Box(
             (if (fill) Modifier.fillMaxSize() else Modifier)
                 .background(if (f) Color.White else if (selected) accent else Color(0x33FFFFFF))
@@ -338,3 +340,38 @@ fun HoldMenu(title: String, options: List<Pair<String, () -> Unit>>, onDismiss: 
         }
     }
 }
+
+/**
+ * Where focus goes when you come Back (build 24). Screens record their area in [restoreTo] when it gets focus
+ * ("home", "lib:<section>", "discover", "weather", "chip:Search", "settings:switch"); App's pop() copies it into [pending]
+ * for the screen being returned to, and that screen puts focus back on the exact item it remembers and clears [pending].
+ */
+object NavMemory {
+    var restoreTo: String? = null
+    var pending: String? = null
+    /** Last focused Home poster: "<row title>|<ratingKey>". */
+    var homeKey: String? = null
+    /** Library grids: last focused index, scroll state and sort per section ("<section>|<sort>" / section key). */
+    val libTarget = HashMap<String, Int>()
+    val libGrid = HashMap<String, LazyGridState>()
+    val libSort = HashMap<String, String>()
+
+    fun take(target: String): Boolean = if (pending == target) { pending = null; true } else false
+
+    fun clear() {
+        restoreTo = null; pending = null; homeKey = null
+        libTarget.clear(); libGrid.clear(); libSort.clear()
+    }
+}
+
+/** Focus [fr] once its item is laid out (a lazy list composes it a frame after scrolling). True when it worked. */
+suspend fun focusSoon(fr: FocusRequester, tries: Int = 15): Boolean {
+    repeat(tries) {
+        if (runCatching { fr.requestFocus() }.isSuccess) return true
+        delay(40)
+    }
+    return false
+}
+
+/** "1 season", "3 seasons". */
+fun plural(n: Int, word: String): String = "$n $word" + if (n == 1) "" else "s"

@@ -91,21 +91,29 @@ fun App(api: PlexApi, prefs: Prefs) {
     fun reset(s: Screen) {
         stack.clear()
         stack.add(s)
+        NavMemory.pending = null
     }
 
     fun pop() {
         if (stack.size > 1) {
             val top = stack.removeAt(stack.lastIndex)
             if (top is Screen.Play) refresh++
+            // focus goes back to the exact item you came from (see NavMemory)
+            NavMemory.pending = when (stack.last()) {
+                Screen.Main -> {
+                    // Back from the profile picker opened with the profile chip: Home, on the poster you were on
+                    if (top == Screen.Profiles && NavMemory.restoreTo == "home") home.tab = 0
+                    NavMemory.restoreTo
+                }
+                Screen.Search -> "search"
+                else -> null
+            }
         }
     }
 
+    // The picker opens on top of Home; the profile only changes when one is picked, so Back returns to Home unchanged.
     fun switchProfile() {
-        prefs.userToken = null
-        prefs.serverToken = null
-        ov.reset()
-        home.reset()
-        reset(Screen.Profiles)
+        stack.add(Screen.Profiles)
     }
 
     fun signOut() {
@@ -139,6 +147,7 @@ fun App(api: PlexApi, prefs: Prefs) {
         Screen.Login -> LoginScreen(api, prefs) { reset(Screen.Profiles) }
 
         Screen.Profiles -> ProfilesScreen(api, prefs) {
+            ov.reset()
             home.reset()
             reset(Screen.Boot)
         }

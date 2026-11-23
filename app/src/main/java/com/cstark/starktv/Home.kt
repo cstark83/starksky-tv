@@ -1,5 +1,6 @@
 package com.cstark.starktv
 
+import androidx.compose.foundation.lazy.LazyListState
 import android.graphics.Bitmap
 import android.graphics.drawable.BitmapDrawable
 import androidx.compose.animation.Crossfade
@@ -115,10 +116,11 @@ fun WeatherBlock(prefs: Prefs, onOpen: () -> Unit) {
             delay(150)
             runCatching { fr.requestFocus() }
             WeatherState.returnFocus = false
+            NavMemory.take("weather")
         }
     }
     val w = WeatherState.weather
-    Focusable(fr = fr, scaleOnFocus = 1.06f, onClick = onOpen) { f ->
+    Focusable(fr = fr, scaleOnFocus = 1.06f, onClick = onOpen, onFocus = { NavMemory.restoreTo = "weather" }) { f ->
         Column(
             Modifier
                 .background(if (f) Color(0x33FFFFFF) else Color.Transparent)
@@ -141,6 +143,14 @@ fun WeatherBlock(prefs: Prefs, onOpen: () -> Unit) {
 
 @Composable
 fun TopBar(prefs: Prefs, home: HomeData, onSearch: () -> Unit, onProfile: () -> Unit, onWeather: () -> Unit, onSpotify: () -> Unit) {
+    val searchFr = remember { FocusRequester() }
+    // Back from Search: focus returns to the Search chip (after the tab content's own first focus)
+    LaunchedEffect(Unit) {
+        if (NavMemory.pending == "chip:Search") {
+            delay(150)
+            if (NavMemory.take("chip:Search")) focusSoon(searchFr)
+        }
+    }
     Row(
         Modifier.fillMaxWidth().padding(horizontal = 48.dp, vertical = 14.dp),
         verticalAlignment = Alignment.Top,
@@ -150,12 +160,13 @@ fun TopBar(prefs: Prefs, home: HomeData, onSearch: () -> Unit, onProfile: () -> 
             Modifier.weight(1f).padding(top = 8.dp).padding(horizontal = 12.dp).horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            Chip(prefs.userName ?: "Profile", false, compact = true, onClick = onProfile)
+            // Back from the picker returns to Home, on the poster you were on (NavMemory "home")
+            Chip(prefs.userName ?: "Profile", false, compact = true) { NavMemory.restoreTo = "home"; onProfile() }
             Chip("Home", home.tab == 0, compact = true) { home.tab = 0 }
             home.sections.forEachIndexed { i, s -> Chip(s.title, home.tab == i + 1, compact = true) { home.tab = i + 1 } }
-            Chip("Search", false, compact = true, onClick = onSearch)
+            Chip("Search", false, compact = true, fr = searchFr, onFocus = { NavMemory.restoreTo = "chip:Search" }, onClick = onSearch)
             Chip("Spotify", false, compact = true, onClick = onSpotify)
-            if (!prefs.restricted) Chip("Discover", home.tab == home.discoverTab, compact = true) { home.tab = home.discoverTab } // kid profiles: no Discover
+            if (!prefs.restricted) Chip("Discover", home.tab == home.discoverTab, compact = true, fr = home.discoverChipFr) { home.tab = home.discoverTab } // kid profiles: no Discover
             if (Updater.newBuild > 0) Chip("Update", false, compact = true) { home.tab = home.settingsTab }
             Chip("Settings", home.tab == home.settingsTab, compact = true) { home.tab = home.settingsTab }
         }
@@ -342,9 +353,29 @@ fun HomeScreen(
             if (m.status >= 4 && rk != null) onDetail(rk) else onRequest(m)
         }
     }
+    // Back from a title, the player, Settings or the profile picker: focus on the exact poster you came from (NavMemory)
+    val restoring = remember { NavMemory.pending }
+    val restoreKey = remember { if (restoring == "home") NavMemory.homeKey else null }
+    val restoreFr = remember { FocusRequester() }
     LaunchedEffect(rows.size) {
-        if (home.selected == null) home.selected = rows.first().items.first()
-        if (!WeatherState.returnFocus) runCatching { first.requestFocus() } // coming back from the weather page: the widget takes focus
+        if (home.selected == null) home.selected = rows.firstOrNull()?.items?.firstOrNull()
+        if (WeatherState.returnFocus) return@LaunchedEffect // coming back from the weather page: the widget takes focus
+        if (restoring == "home") {
+            NavMemory.take("home")
+            val ri = rows.indexOfFirst { r -> r.items.any { "${r.title}|${it.ratingKey}" == restoreKey } }
+            if (ri >= 0) {
+                val row = rows[ri]
+                val ii = row.items.indexOfFirst { "${row.title}|${it.ratingKey}" == restoreKey }
+                if (home.listState.layoutInfo.visibleItemsInfo.none { it.index == ri }) home.listState.scrollToItem(ri)
+                delay(40)
+                val rs = home.rowStates[row.title]
+                if (rs != null && rs.layoutInfo.visibleItemsInfo.none { it.index == ii }) rs.scrollToItem(ii)
+                if (focusSoon(restoreFr)) return@LaunchedEffect
+            }
+        } else if (restoring != null) {
+            return@LaunchedEffect // the top bar (Search chip) or another screen puts focus back
+        }
+        if (!focusSoon(first) && restoreKey != null) focusSoon(restoreFr)
     }
     // Kept in HomeData (not rememberLazyListState) so the scroll position survives opening a title.
     val listState = home.listState
@@ -403,6 +434,7 @@ fun HomeScreen(
                             modifier = Modifier.padding(start = 48.dp, bottom = 10.dp),
                         )
                         LazyRow(
+                            state = home.rowStates.getOrPut(row.title) { LazyListState() },
                             contentPadding = PaddingValues(horizontal = 48.dp),
                             horizontalArrangement = Arrangement.spacedBy(16.dp),
                         ) {
@@ -411,8 +443,14 @@ fun HomeScreen(
                                     api,
                                     item,
                                     row.landscape,
-                                    if (ri == 0 && ii == 0) first else null,
+                                    when {
+                                        "${row.title}|${item.ratingKey}" == restoreKey -> restoreFr
+                                        ri == 0 && ii == 0 -> first
+                                        else -> null
+                                    },
                                     onFocus = {
+                                        NavMemory.homeKey = "${row.title}|${item.ratingKey}"
+                                        NavMemory.restoreTo = "home"
                                         home.selected = item
                                         home.selectedDeck = row.playDirect
                                         home.selectedExternal = row.external

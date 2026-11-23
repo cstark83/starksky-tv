@@ -1,5 +1,7 @@
 package com.cstark.starktv
 
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.focus.focusProperties
 import android.content.Intent
 import android.speech.RecognizerIntent
 import android.widget.Toast
@@ -150,8 +152,12 @@ object DiscoverUi {
 @Composable
 fun DiscoverScreen(home: HomeData, ov: OverseerrApi, onRequest: (Media) -> Unit) {
     val s = DiscoverUi
-    Column(Modifier.fillMaxSize()) {
-        Row(Modifier.padding(start = 48.dp, top = 8.dp, bottom = 12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(Modifier.fillMaxSize().onFocusChanged { if (it.hasFocus) NavMemory.restoreTo = "discover" }) {
+        // Up from these chips goes to the Discover tab chip (not the nearest chip, the profile one)
+        Row(
+            Modifier.padding(start = 48.dp, top = 8.dp, bottom = 12.dp).focusProperties { up = home.discoverChipFr },
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
             Chip("For you", s.mode == 0, compact = true) { s.mode = 0 }
             Chip("Search", s.mode == 1, compact = true) { s.mode = 1 }
             Chip("Genres", s.mode == 2, compact = true) { s.mode = 2 }
@@ -333,7 +339,11 @@ private fun DiscoverRows(home: HomeData, onRequest: (Media) -> Unit) {
     if (rows.isEmpty()) { Centered("Nothing to suggest yet. Watch a few things and check back."); return }
 
     val first = remember { FocusRequester() }
-    LaunchedEffect(rows.size) { runCatching { first.requestFocus() } }
+    // coming Back to Main with focus owed elsewhere (e.g. the Search chip): don't take it
+    val restoring = remember { NavMemory.pending }
+    LaunchedEffect(rows.size) {
+        if (restoring == null || NavMemory.take("discover")) runCatching { first.requestFocus() }
+    }
 
     LazyColumn(
         contentPadding = PaddingValues(top = 8.dp, bottom = 48.dp),

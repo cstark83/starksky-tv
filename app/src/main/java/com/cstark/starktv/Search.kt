@@ -1,5 +1,13 @@
 package com.cstark.starktv
 
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.ViewCompat
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.lazy.grid.LazyGridState
+import androidx.compose.foundation.border
 import android.content.Intent
 import android.speech.RecognizerIntent
 import android.widget.Toast
@@ -50,28 +58,58 @@ import kotlinx.coroutines.delay
 
 private const val HINT = "Type or speak to search your libraries"
 
+/** Search state kept while a title opened from the results is on screen, so Back returns to the same results. */
+private object SearchMem {
+    var query = ""
+    var searched = ""
+    var results: List<Item> = emptyList()
+    var requestable: List<Media> = emptyList()
+    var status = HINT
+    var grid = LazyGridState()
+    var focusKey: String? = null
+
+    fun clear() {
+        query = ""; searched = ""; results = emptyList(); requestable = emptyList(); status = HINT
+        grid = LazyGridState(); focusKey = null
+    }
+}
+
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
 fun SearchScreen(api: PlexApi, ov: OverseerrApi, onRequest: (Media) -> Unit, onOpen: (Item) -> Unit, onClose: () -> Unit) {
     val ctx = LocalContext.current
     val kb = LocalSoftwareKeyboardController.current
-    var query by remember { mutableStateOf("") }
-    var results by remember { mutableStateOf<List<Item>>(emptyList()) }
-    var status by remember { mutableStateOf(HINT) }
-    var requestable by remember { mutableStateOf<List<Media>>(emptyList()) }
+    val view = LocalView.current
+    val accent = LocalAccent.current
+    // Back from a title opened here: same query, results and scroll, focus on the result you opened
+    val returning = remember { NavMemory.take("search").also { if (!it) SearchMem.clear() } }
+    val restoreKey = remember { if (returning) SearchMem.focusKey else null }
+    var query by remember { mutableStateOf(SearchMem.query) }
+    var results by remember { mutableStateOf(SearchMem.results) }
+    var status by remember { mutableStateOf(SearchMem.status) }
+    var requestable by remember { mutableStateOf(SearchMem.requestable) }
     val field = remember { FocusRequester() }
+    val firstFr = remember { FocusRequester() }
+    val restoreFr = remember { FocusRequester() }
+    var fieldFocused by remember { mutableStateOf(false) }
+    // keyboard closed before the results came in: move to the first result when they arrive
+    var wantResults by remember { mutableStateOf(false) }
+    val hasResults = results.isNotEmpty() || (requestable.isNotEmpty() && !ov.restricted)
 
     val speech = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
         val said = r.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
-        if (!said.isNullOrBlank()) query = said
+        if (!said.isNullOrBlank()) { query = said; wantResults = true }
     }
 
     LaunchedEffect(query) {
+        SearchMem.query = query
         val q = query.trim()
+        if (q == SearchMem.searched && returning) return@LaunchedEffect // results already on screen
         if (q.length < 2) {
             results = emptyList()
             requestable = emptyList()
             status = HINT
+            SearchMem.results = results; SearchMem.requestable = requestable; SearchMem.status = status; SearchMem.searched = ""
             return@LaunchedEffect
         }
         delay(350)
@@ -80,11 +118,40 @@ fun SearchScreen(api: PlexApi, ov: OverseerrApi, onRequest: (Media) -> Unit, onO
             results = api.search(q)
             requestable = if (ov.ensure()) ov.search(q).filter { it.status < 5 }.take(12) else emptyList()
             status = if (results.isEmpty() && requestable.isEmpty()) "No results for \"$q\"" else ""
+            SearchMem.searched = q
         } catch (e: Exception) {
             status = "Search failed: ${e.message}"
         }
+        SearchMem.results = results; SearchMem.requestable = requestable; SearchMem.status = status
     }
-    LaunchedEffect(Unit) { runCatching { field.requestFocus() } }
+    LaunchedEffect(Unit) {
+        if (returning && restoreKey != null && focusSoon(restoreFr)) return@LaunchedEffect
+        if (returning && hasResults && focusSoon(firstFr)) return@LaunchedEffect
+        runCatching { field.requestFocus() }
+    }
+    // On-screen keyboard closed (Back, or its search key): focus the first result, or stay on the box if there are none.
+    LaunchedEffect(Unit) {
+        var shown = false
+        while (true) {
+            val now = ViewCompat.getRootWindowInsets(view)?.isVisible(WindowInsetsCompat.Type.ime()) == true
+            if (shown && !now) {
+                if (results.isNotEmpty() || (requestable.isNotEmpty() && !ov.restricted)) {
+                    if (!focusSoon(firstFr)) runCatching { field.requestFocus() }
+                } else {
+                    wantResults = true
+                    runCatching { field.requestFocus() }
+                }
+            }
+            shown = now
+            delay(200)
+        }
+    }
+    LaunchedEffect(results, requestable) {
+        if (wantResults && fieldFocused && (results.isNotEmpty() || (requestable.isNotEmpty() && !ov.restricted))) {
+            wantResults = false
+            focusSoon(firstFr)
+        }
+    }
 
     Box(Modifier.fillMaxSize().background(Pal.Bg)) {
         Column(Modifier.fillMaxSize().padding(horizontal = 48.dp, vertical = 24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -100,6 +167,16 @@ fun SearchScreen(api: PlexApi, ov: OverseerrApi, onRequest: (Media) -> Unit, onO
                     modifier = Modifier
                         .weight(1f)
                         .focusRequester(field)
+                        .onFocusChanged { fieldFocused = it.isFocused }
+                        // Down from the box (keyboard closed) goes into the results
+                        .onPreviewKeyEvent {
+                            if (it.type == KeyEventType.KeyDown && it.key == Key.DirectionDown && hasResults) {
+                                runCatching { firstFr.requestFocus() }
+                                true
+                            } else {
+                                false
+                            }
+                        }
                         .onKeyEvent {
                             if (it.type == KeyEventType.KeyUp && (it.key == Key.DirectionCenter || it.key == Key.Enter)) {
                                 kb?.show()
@@ -112,6 +189,7 @@ fun SearchScreen(api: PlexApi, ov: OverseerrApi, onRequest: (Media) -> Unit, onO
                         Box(
                             Modifier
                                 .background(Color(0x22FFFFFF), RoundedCornerShape(10.dp))
+                                .border(if (fieldFocused) 3.dp else 0.dp, if (fieldFocused) accent else Color.Transparent, RoundedCornerShape(10.dp))
                                 .padding(horizontal = 16.dp, vertical = 12.dp),
                         ) {
                             if (query.isEmpty()) Text("Search movies and shows", color = Pal.Dim, fontSize = 24.sp)
@@ -133,17 +211,30 @@ fun SearchScreen(api: PlexApi, ov: OverseerrApi, onRequest: (Media) -> Unit, onO
             }
             if (status.isNotEmpty()) Text(status, fontSize = 18.sp, color = Pal.Dim)
             LazyVerticalGrid(
+                state = SearchMem.grid,
                 columns = GridCells.Adaptive(166.dp),
                 contentPadding = PaddingValues(bottom = 32.dp),
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
                 verticalArrangement = Arrangement.spacedBy(20.dp),
             ) {
-                items(results, key = { "p" + it.ratingKey }) { item -> PosterCard(api, item, false) { onOpen(item) } }
+                itemsIndexed(results, key = { _, it -> "p" + it.ratingKey }) { i, item ->
+                    val k = "p" + item.ratingKey
+                    PosterCard(
+                        api, item, false,
+                        fr = if (k == restoreKey) restoreFr else if (i == 0) firstFr else null,
+                        onFocus = { SearchMem.focusKey = k },
+                    ) { onOpen(item) }
+                }
                 if (requestable.isNotEmpty() && !ov.restricted) { // kid profiles: no requests
                     item(key = "hdr", span = { GridItemSpan(maxLineSpan) }) {
                         Text("Not in your library — request it", fontSize = 18.sp, color = Pal.Dim, modifier = Modifier.padding(top = 8.dp))
                     }
-                    items(requestable, key = { "m" + it.type + it.id }) { m -> MediaCard(m) { onRequest(m) } }
+                    itemsIndexed(requestable, key = { _, it -> "m" + it.type + it.id }) { i, m ->
+                        val k = "m" + m.type + m.id
+                        Box(Modifier.onFocusChanged { if (it.hasFocus) SearchMem.focusKey = k }) {
+                            MediaCard(m, if (k == restoreKey) restoreFr else if (i == 0 && results.isEmpty()) firstFr else null) { onRequest(m) }
+                        }
+                    }
                 }
             }
         }

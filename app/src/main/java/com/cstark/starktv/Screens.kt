@@ -1,5 +1,6 @@
 package com.cstark.starktv
 
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
@@ -225,6 +226,7 @@ fun ProfilesScreen(api: PlexApi, prefs: Prefs, onDone: () -> Unit) {
     if (list == null) { Centered("Loading profiles…"); return }
 
     if (pinProfile != null) {
+        BackHandler { pinFor = null; error = null }
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             PinPad(
                 name = pinProfile.title,
@@ -326,6 +328,10 @@ class HomeData {
     val discoverTab: Int get() = sections.size + 1
     val settingsTab: Int get() = sections.size + 2
     val listState = LazyListState()
+    /** Scroll position of each Home row (by title), kept so Back can put focus on the poster you came from. */
+    val rowStates = HashMap<String, LazyListState>()
+    /** The Discover tab chip: Up from Discover's own chips goes there. */
+    val discoverChipFr = FocusRequester()
     /** Time of the last successful loadHome (0 = not yet); MainScreen copies it into prefs.lastSync. */
     var lastSync by mutableLongStateOf(0L)
 
@@ -337,6 +343,8 @@ class HomeData {
         selected = null
         discover = null
         discoverError = null
+        rowStates.clear()
+        NavMemory.clear()
     }
 }
 
@@ -460,7 +468,8 @@ fun MainScreen(
         }
         prefs.lastBuild = cur
     }
-    BackHandler(enabled = home.tab != 0) { home.tab = 0 }
+    // Back from a tab (library, Discover, Settings): Home, with focus on the poster you were last on
+    BackHandler(enabled = home.tab != 0) { home.tab = 0; NavMemory.pending = "home" }
     LaunchedEffect(home.tab, home.rows != null, refresh) {
         if (home.tab == home.discoverTab && home.rows != null && home.discover == null) {
             loadDiscover(api, ov, home)
@@ -512,13 +521,21 @@ private fun azLetter(item: Item): Char {
 
 @Composable
 fun LibraryScreen(api: PlexApi, section: Section, refresh: Int, onPlay: (Item) -> Unit, onOpen: (Item) -> Unit) {
-    var sort by rememberSaveable(section.key) { mutableStateOf("titleSort:asc") }
+    // Back from a title opened here: same sort, same scroll position, focus on the poster you opened (NavMemory)
+    val area = "lib:${section.key}"
+    val restoring = remember(section.key) { NavMemory.pending == area }
+    var sort by rememberSaveable(section.key) {
+        mutableStateOf(if (restoring) NavMemory.libSort[section.key] ?: "titleSort:asc" else "titleSort:asc")
+    }
+    val memKey = "${section.key}|$sort"
     var items by remember(section.key, sort) { mutableStateOf<List<Item>?>(null) }
     var err by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
-    val gridState = remember(section.key, sort) { LazyGridState() }
+    val gridState = remember(section.key, sort) {
+        (if (restoring) NavMemory.libGrid[memKey] else null) ?: LazyGridState().also { NavMemory.libGrid[memKey] = it }
+    }
     // The grid item focus returns to when you press Left from the A–Z column (last focused, or last jumped to).
-    var target by remember(section.key, sort) { mutableIntStateOf(0) }
+    var target by remember(section.key, sort) { mutableIntStateOf(if (restoring) NavMemory.libTarget[memKey] ?: 0 else 0) }
     val targetFr = remember { FocusRequester() }
     // hold OK on a poster: options menu (same HoldMenu / HOLD_OK_MS as Home); focus returns to the poster (targetFr) on close
     val menu = rememberHoldMenu()
@@ -567,11 +584,19 @@ fun LibraryScreen(api: PlexApi, section: Section, refresh: Int, onPlay: (Item) -
         }
     }
 
+    LaunchedEffect(items != null) {
+        val list = items
+        if (restoring && list != null && NavMemory.take(area) && target in list.indices) {
+            if (gridState.layoutInfo.visibleItemsInfo.none { it.index == target }) gridState.scrollToItem(target)
+            focusSoon(targetFr)
+        }
+    }
+
     Box(Modifier.fillMaxSize()) {
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.padding(horizontal = 48.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Chip("A–Z", sort == "titleSort:asc") { sort = "titleSort:asc" }
-            Chip("Recently Added", sort == "addedAt:desc") { sort = "addedAt:desc" }
+            Chip("A–Z", sort == "titleSort:asc") { sort = "titleSort:asc"; NavMemory.libSort[section.key] = sort }
+            Chip("Recently Added", sort == "addedAt:desc") { sort = "addedAt:desc"; NavMemory.libSort[section.key] = sort }
         }
         val list = items
         if (list == null) {
@@ -597,7 +622,16 @@ fun LibraryScreen(api: PlexApi, section: Section, refresh: Int, onPlay: (Item) -
                 ) {
                     gridItemsIndexed(list) { i, item ->
                         Box(if (i == target) Modifier.focusRequester(targetFr) else Modifier) {
-                            PosterCard(api, item, false, onFocus = { target = i }, onLongPress = { target = i; openMenu(item) }) { onOpen(item) }
+                            PosterCard(
+                                api, item, false,
+                                onFocus = {
+                                    target = i
+                                    NavMemory.libTarget[memKey] = i
+                                    NavMemory.libSort[section.key] = sort
+                                    NavMemory.restoreTo = area
+                                },
+                                onLongPress = { target = i; openMenu(item) },
+                            ) { onOpen(item) }
                         }
                     }
                 }
@@ -758,7 +792,10 @@ fun SettingsScreen(
             fontSize = 14.sp,
             color = Pal.Dim,
         )
-        Chip("Switch profile", onClick = onSwitch)
+        // Back from the profile picker opened here: focus returns to this button
+        val switchFr = remember { FocusRequester() }
+        LaunchedEffect(Unit) { if (NavMemory.take("settings:switch")) focusSoon(switchFr) }
+        Chip("Switch profile", fr = switchFr) { NavMemory.restoreTo = "settings:switch"; onSwitch() }
         Chip("Sign out", onClick = onSignOut)
     }
 }
@@ -802,7 +839,13 @@ fun DetailScreen(
 
     val d = data
     if (d == null) { Centered(err ?: "Loading…"); return }
-    LaunchedEffect(d.item.ratingKey) { runCatching { playFocus.requestFocus() } }
+    val detailList = rememberLazyListState()
+    LaunchedEffect(d.item.ratingKey) {
+        runCatching { playFocus.requestFocus() }
+        // focusing Play scrolls the page a little (TV focus pivot); open at the top so the title is fully visible
+        delay(120)
+        detailList.scrollToItem(0)
+    }
     LaunchedEffect(d.item.ratingKey) {
         backupTrailer = if (d.trailers.isEmpty()) Tmdb.trailerYoutubeId(ctx, d) else null
         wlKeys = api.watchlist().map { it.ratingKey }.toSet()
@@ -872,6 +915,7 @@ fun DetailScreen(
             modifier = Modifier.fillMaxSize().alpha(0.22f),
         )
         LazyColumn(
+            state = detailList,
             contentPadding = PaddingValues(48.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
@@ -889,7 +933,7 @@ fun DetailScreen(
                             top.year.takeIf { it > 0 }?.toString(),
                             top.contentRating,
                             top.duration.takeIf { it > 0 }?.let { fmtRuntime(it) },
-                            if (isShow && seasons.isNotEmpty()) "${seasons.count { it > 0 }} seasons" else null,
+                            if (isShow && seasons.isNotEmpty()) plural(seasons.count { it > 0 }, "season") else null,
                         ).joinToString("  ·  ")
                         if (meta.isNotEmpty()) Text(meta, fontSize = 16.sp, color = Pal.Dim)
                         Text(top.summary, fontSize = 16.sp, maxLines = 5, overflow = TextOverflow.Ellipsis)
@@ -1002,7 +1046,7 @@ suspend fun watchBackupLine(): String = withContext(Dispatchers.IO) {
         val j = org.json.JSONObject(txt)
         val t = j.optLong("ledger_last_ok", 0L)
         val time = if (t > 0) SimpleDateFormat("MMM d, h:mm a", Locale.getDefault()).format(Date(t * 1000)) else "never"
-        "Watch history backup: Last export $time: ${j.optInt("items_protected")} items protected, " +
+        "Watch history backup: Last export $time: ${plural(j.optInt("items_protected"), "item")} protected, " +
             "${j.optInt("kept_not_in_library")} kept for deleted titles"
     } catch (e: Throwable) {
         "Watch history backup: Can't reach backup status"
