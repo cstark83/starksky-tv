@@ -44,6 +44,8 @@ import kotlinx.coroutines.launch
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.activity.OnBackPressedDispatcher
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
@@ -258,6 +260,24 @@ fun HoldMenuHost(s: HoldMenuState) {
     LaunchedEffect(s.restore) { if (s.restore > 0) { delay(50); s.refocus() } }
     val opts = s.options ?: return
     HoldMenu(s.title, opts.map { (label, act) -> label to { s.close(); act() } }, onDismiss = { s.close() }, selected = 0)
+}
+
+/**
+ * Back for the whole app. Compose turns a Back key that no handler consumed into a focus "Exit" (FocusDirection.Exit):
+ * with focus inside a LazyRow/LazyColumn/LazyVerticalGrid or a focusGroup that move succeeds, the key-down is swallowed and the
+ * activity never sees Back, so no BackHandler ran (title pages, library grids, Search, Settings, Discover did nothing).
+ * This bubble-phase handler sits above every screen: when a BackHandler is enabled, the first Back key-down goes to it and
+ * is consumed, so it never reaches the focus system (key repeats from holding Back are swallowed, so one press = one page).
+ * The key-up is left alone; the activity ignores it because it never saw the key-down. Preview handlers still run first,
+ * so an open HoldMenu and the player's next-episode countdown keep consuming Back themselves. With no BackHandler enabled
+ * (Home, first tab) it does nothing and Back behaves as before. Stateless on purpose (recomposition can't lose a flag).
+ */
+fun Modifier.backToBackHandlers(dispatcher: () -> OnBackPressedDispatcher?): Modifier = onKeyEvent { e ->
+    if (e.key != Key.Back || e.type != KeyEventType.KeyDown) return@onKeyEvent false
+    val d = dispatcher()
+    if (d == null || !d.hasEnabledCallbacks()) return@onKeyEvent false
+    if (e.nativeKeyEvent.repeatCount == 0) d.onBackPressed()
+    true
 }
 
 fun isOkKey(k: Key) = k == Key.DirectionCenter || k == Key.Enter || k == Key.NumPadEnter

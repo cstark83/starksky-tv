@@ -18,6 +18,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.Box
+import androidx.activity.compose.LocalOnBackPressedDispatcherOwner
 
 sealed class Screen {
     data class Intro(val preview: Boolean = false) : Screen()
@@ -117,6 +119,9 @@ fun App(api: PlexApi, prefs: Prefs) {
         if (Nav.searchRequest > 0 && stack.last() == Screen.Main) stack.add(Screen.Search)
     }
 
+    // Back goes to the BackHandlers above even when focus sits in a lazy row/grid (see backToBackHandlers in Ui.kt)
+    val backOwner = LocalOnBackPressedDispatcherOwner.current
+    Box(Modifier.fillMaxSize().backToBackHandlers { backOwner?.onBackPressedDispatcher }) {
     when (val s = stack.last()) {
         is Screen.Intro -> IntroScreen(prefs.introStyle.let { if (it == INTRO_OFF) 0 else it }) {
             if (s.preview) pop() else reset(Screen.Boot)
@@ -183,5 +188,6 @@ fun App(api: PlexApi, prefs: Prefs) {
                 },
             )
         }
+    }
     }
 }
