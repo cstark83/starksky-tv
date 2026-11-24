@@ -56,6 +56,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -103,6 +104,8 @@ fun PlayerScreen(
     var countdown by remember { mutableStateOf<Int?>(null) }
     var countdownUsed by remember { mutableStateOf(false) }
     var countdownCancelled by remember { mutableStateOf(false) }
+    // The countdown reached 0 before this episode really ended: keep playing, switch at STATE_ENDED (or OK = play now).
+    var countdownDone by remember { mutableStateOf(false) }
     var lastSeekAt by remember { mutableLongStateOf(0L) }
     var scrobbled by remember { mutableStateOf(false) }
 
@@ -118,10 +121,23 @@ fun PlayerScreen(
     // true once the player was released early by ON_STOP (Home button, TV off, SHIELD asleep)
     var released by remember { mutableStateOf(false) }
 
+    // Debug log of every start / stop / end / leave with position and duration (PlayLog, files/playlog.txt + logcat).
+    fun plog(event: String, pos: Long = runCatching { player.currentPosition }.getOrDefault(-1L)) {
+        val dur = runCatching { player.duration }.getOrDefault(C.TIME_UNSET)
+        val cur = info?.item
+        val what = when {
+            cur == null -> if (req.url != null) "trailer" else "key=${req.key}"
+            cur.type == "episode" -> "${cur.label} ${cur.epCode} (${cur.ratingKey})"
+            else -> "${cur.label} (${cur.ratingKey})"
+        }
+        PlayLog.add(ctx, "$event | pos ${fmtMs(pos)} / player ${fmtMs(dur)} / plex ${fmtMs(cur?.duration ?: 0L)} | $what")
+    }
+
     // Tell Plex where we stopped (and mark watched past 90%), then release the session and the player.
     DisposableEffect(Unit) {
         onDispose {
             val i = info
+            if (!released) plog("leave player (closed: Back, next episode, end or Home)")
             if (i != null && !released) {
                 val pos = player.currentPosition
                 val dur = i.item.duration
@@ -147,6 +163,7 @@ fun PlayerScreen(
     DisposableEffect(lifecycleOwner) {
         val obs = LifecycleEventObserver { _, ev ->
             if (ev == Lifecycle.Event.ON_STOP && !released) {
+                plog("ON_STOP: app left the screen (Home, other app, TV off), saving position and closing the player")
                 released = true
                 sleepEndAt = 0L
                 countdown = null
@@ -177,10 +194,12 @@ fun PlayerScreen(
         trk.programmatic = false
     }
 
-    fun playNext() {
+    fun playNext(why: String) {
         val i = info ?: return
         val n = i.nextKey ?: return
+        plog("next episode: $why")
         countdown = null
+        countdownDone = false
         // reached the credits: count it as watched even when the credits are longer than the last 10%
         if (!scrobbled) {
             scrobbled = true
@@ -189,8 +208,9 @@ fun PlayerScreen(
         onNext(n)
     }
 
-    fun startCountdown() {
+    fun startCountdown(why: String) {
         if (countdownUsed || info?.nextKey == null) return
+        plog("countdown start ($why)")
         countdownUsed = true
         countdown = NEXT_COUNTDOWN_S
     }
@@ -199,12 +219,19 @@ fun PlayerScreen(
         val l = object : Player.Listener {
             override fun onPlaybackStateChanged(playbackState: Int) {
                 if (playbackState == Player.STATE_ENDED) {
+                    plog("STATE_ENDED (the file really ended)")
                     val n = info?.nextKey
                     when {
                         n == null -> onExit()
                         countdownCancelled -> Unit // you cancelled the countdown: stay on this episode
-                        countdown == null -> startCountdown() // no countdown yet (very short credits): show it now
+                        countdownDone -> playNext("episode ended after the countdown")
+                        countdown == null -> startCountdown("end reached, no countdown yet") // very short credits
+                        // still counting: the countdown effect switches when it reaches 0
                     }
+                } else if (playbackState == Player.STATE_BUFFERING && player.duration > 0 &&
+                    player.duration - player.currentPosition < 60_000L
+                ) {
+                    plog("buffering near the end")
                 }
             }
 
@@ -236,6 +263,7 @@ fun PlayerScreen(
             }
 
             override fun onPlayerError(e: PlaybackException) {
+                plog("ERROR ${e.errorCodeName}")
                 error = "Playback error: ${e.errorCodeName}"
                 // Keep the last failure so it can be read later in Settings.
                 val cur = info?.item
@@ -290,6 +318,7 @@ fun PlayerScreen(
             )
             val mi = MediaItem.Builder().setUri(url).setSubtitleConfigurations(subs).build()
             player.setMediaItem(mi, req.offset)
+            plog("start at ${fmtMs(req.offset)}", req.offset)
             player.prepare()
             player.playWhenReady = true
             if (session == null) {
@@ -315,12 +344,13 @@ fun PlayerScreen(
             if (i.nextKey != null && !countdownUsed && dur > 0 && at > 0 && posMs >= at && player.isPlaying &&
                 System.currentTimeMillis() - lastSeekAt > 1500
             ) {
-                startCountdown()
+                startCountdown(if (i.creditsStart > 0) "Plex credits marker at ${fmtMs(i.creditsStart)}" else "30 s before the end")
             }
         }
     }
 
-    // Countdown: one second at a time, then the next episode.
+    // Countdown: one second at a time. At 0 the next episode starts only if this one has really ended (STATE_ENDED);
+    // otherwise the credits keep playing and the switch happens at the end (the listener above). OK = play now.
     val counting = countdown != null
     LaunchedEffect(counting) {
         if (!counting) return@LaunchedEffect
@@ -328,7 +358,12 @@ fun PlayerScreen(
             delay(1000)
             countdown = countdown?.minus(1)
         }
-        playNext()
+        if (player.playbackState == Player.STATE_ENDED) {
+            playNext("countdown finished after the end")
+        } else {
+            countdownDone = true
+            plog("countdown at 0, still playing: waiting for the real end")
+        }
     }
 
     // Sleep timer: tick each second; at the end fade out, pause, save the position to Plex, go Home.
@@ -345,6 +380,7 @@ fun PlayerScreen(
         player.pause()
         val i = info
         val pos = player.currentPosition
+        plog("sleep timer ended: paused, going Home", pos)
         if (i != null) api.timeline(i.item, "stopped", pos)
         player.volume = 1f
         sleepEndAt = 0L
@@ -394,11 +430,14 @@ fun PlayerScreen(
                 // Next-episode countdown: OK = play now, Back = cancel (and stay; this Back never leaves the player).
                 if (countdown != null) {
                     if (isOkKey(k)) {
-                        if (e.type == KeyEventType.KeyDown) { okSwallowUp = true; playNext() }
+                        if (e.type == KeyEventType.KeyDown) { okSwallowUp = true; playNext("OK = play now") }
                         return@onPreviewKeyEvent true
                     }
                     if (k == Key.Back) {
-                        if (e.type == KeyEventType.KeyUp) { countdown = null; countdownCancelled = true }
+                        if (e.type == KeyEventType.KeyUp) {
+                            countdown = null; countdownDone = false; countdownCancelled = true
+                            plog("countdown cancelled with Back, keeps playing")
+                        }
                         return@onPreviewKeyEvent true
                     }
                 }
@@ -526,7 +565,10 @@ fun PlayerScreen(
                     .padding(horizontal = 20.dp, vertical = 14.dp),
             ) {
                 val what = if (nx != null) "${nx.grandparentTitle ?: i.item.label} ${nx.epCode}" else "next episode"
-                Text("Next episode in ${cd}s: $what", fontSize = 18.sp, color = Color.White)
+                Text(
+                    if (countdownDone) "Next episode when this one ends: $what" else "Next episode in ${cd}s: $what",
+                    fontSize = 18.sp, color = Color.White,
+                )
                 Text("OK = play now  ·  Back = cancel", fontSize = 14.sp, color = Pal.Dim)
             }
         }
@@ -632,4 +674,29 @@ private fun applySavedTracks(p: TrackSelectionParameters, tracks: Tracks, saved:
         }
     }
     return if (changed) b.build() else null
+}
+
+// ---------------------------------------------------------------- playback debug log
+
+private fun fmtMs(ms: Long): String {
+    if (ms == C.TIME_UNSET || ms < 0) return "?"
+    val s = ms / 1000
+    return String.format(Locale.US, "%d:%02d:%02d.%01d", s / 3600, s / 60 % 60, s % 60, ms % 1000 / 100)
+}
+
+/**
+ * Last 300 playback events (start, countdown, STATE_ENDED, next episode, Back/ON_STOP/sleep-timer leave, errors) with
+ * position and duration: files/playlog.txt in the app's own storage (debug build: adb shell run-as com.cstark.starktv
+ * cat files/playlog.txt) and logcat tag StarskyPlay.
+ */
+object PlayLog {
+    fun add(ctx: android.content.Context, msg: String) {
+        val line = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date()) + "  " + msg
+        android.util.Log.i("StarskyPlay", line)
+        runCatching {
+            val f = File(ctx.filesDir, "playlog.txt")
+            val old = if (f.exists()) f.readLines().takeLast(299) else emptyList()
+            f.writeText((old + line).joinToString("\n") + "\n")
+        }
+    }
 }
