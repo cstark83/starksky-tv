@@ -1,8 +1,29 @@
 package com.cstark.starktv
 
+import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusGroup
+import androidx.compose.foundation.focusable
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.FilterQuality
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import coil.ImageLoader
+import coil.compose.AsyncImage
+import coil.decode.GifDecoder
+import coil.decode.ImageDecoderDecoder
+import coil.request.CachePolicy
+import coil.request.ImageRequest
+import java.nio.ByteBuffer
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -39,13 +60,11 @@ import java.util.Date
 import java.util.Locale
 import kotlin.math.roundToInt
 
-private const val WEATHER_STALE_MS = 10 * 60_000L
-
 /**
  * Full-screen weather (OK on the Home weather widget). A vertical list, so everything fits and the focused tile is always
- * scrolled into view: header (location, update time, Refresh), NWS alerts banner, current conditions + details, next 12 hours
- * (focusable tiles), 7 days (focusable tiles; OK opens that day's detail). Shows the last saved forecast at once, refreshes it
- * when older than 10 minutes, retries with a message when it fails. Back closes the day detail first, then the page
+ * scrolled into view: header (location, update time, Refresh, Radar), NWS alerts banner, current conditions + details, next 12 hours
+ * (focusable tiles), 7 days (focusable tiles; OK opens that day's detail). Shows the last saved forecast at once and refreshes it in
+ * the background on every open ("Refreshing…"), retries with a message when it fails. Back closes the radar or day detail first, then the page
  * (App's BackHandler), and Home puts focus back on the widget.
  */
 @Composable
@@ -58,16 +77,19 @@ fun WeatherScreen(prefs: Prefs) {
     val dayFrs = remember { List(7) { FocusRequester() } }
     var detail by remember { mutableIntStateOf(-1) }      // day shown in the detail overlay, -1 = none
     var returnTo by remember { mutableIntStateOf(-1) }    // day tile that gets focus back when the detail closes
+    val radarFr = remember { FocusRequester() }
+    var radar by remember { mutableStateOf(false) }       // full-screen radar shown
+    var radarBack by remember { mutableStateOf(false) }   // radar just closed: focus goes back to the Radar button
 
     LaunchedEffect(Unit) { runCatching { refreshFr.requestFocus() } }
+    // Every open (and every Refresh): the saved forecast shows at once, then a fresh one is fetched in the background.
+    // publish() updates WeatherState, so the page, its "Updated" time and the Home widget all follow.
     LaunchedEffect(attempt) {
         loadCachedWeather(prefs)
-        if (attempt > 0 || System.currentTimeMillis() - WeatherState.alertsAt > WEATHER_STALE_MS) refreshAlerts(prefs)
-        val cached = WeatherState.forecast
-        if (attempt == 0 && cached != null && System.currentTimeMillis() - cached.fetchedAt < WEATHER_STALE_MS) return@LaunchedEffect
         var n = 0
         while (true) {
-            if (WeatherState.forecast == null) status = "Loading…"
+            status = if (WeatherState.forecast == null) "Loading…" else "Refreshing…"
+            if (n == 0) refreshAlerts(prefs)
             if (refreshWeather(prefs)) { status = null; break }
             status = if (WeatherState.forecast == null) "Can't reach the weather service, retrying…"
             else "Couldn't refresh, showing the last forecast. Retrying…"
@@ -75,6 +97,14 @@ fun WeatherScreen(prefs: Prefs) {
         }
     }
     BackHandler(enabled = detail >= 0) { returnTo = detail; detail = -1 }
+    BackHandler(enabled = radar) { radar = false; radarBack = true }
+    LaunchedEffect(radar, radarBack) {
+        if (!radar && radarBack) {
+            delay(50)
+            runCatching { radarFr.requestFocus() }
+            radarBack = false
+        }
+    }
     LaunchedEffect(detail, returnTo) {
         if (detail < 0 && returnTo >= 0) {
             delay(50)
@@ -98,6 +128,8 @@ fun WeatherScreen(prefs: Prefs) {
                         Text(listOfNotNull(upd, status).joinToString("  ·  "), fontSize = 14.sp, color = Pal.Dim)
                     }
                     Chip("Refresh", fr = refreshFr, compact = true) { attempt++ }
+                    Spacer(Modifier.width(12.dp))
+                    Chip("Radar", fr = radarFr, compact = true) { radar = true }
                 }
             }
             WeatherState.alerts.forEach { a ->
@@ -143,6 +175,102 @@ fun WeatherScreen(prefs: Prefs) {
         }
         val dd = f?.days?.getOrNull(detail)
         if (dd != null) DayDetail(dd, detail == 0, celsius, accent) { returnTo = detail; detail = -1 }
+        if (radar) RadarView()
+    }
+}
+
+private const val RADAR_REFRESH_MS = 5 * 60_000L
+private const val RADAR_RETRY_MS = 30_000L
+private val RADAR_ARROWS = setOf(Key.DirectionUp, Key.DirectionDown, Key.DirectionLeft, Key.DirectionRight)
+
+/**
+ * Full-screen NWS radar loop (KIWX, Northern Indiana), drawn over the page. Reloads every 5 minutes while open; a failed
+ * reload keeps the last loop and tries again in 30 s. With no loop at all it shows "Radar unavailable, press OK to retry".
+ * Focus stays here: OK only retries after a failure (a GIF can't pause), the arrows do nothing, and Back goes to the
+ * page's BackHandler, which closes the radar and puts focus back on the Radar button.
+ */
+@OptIn(ExperimentalComposeUiApi::class)
+@Composable
+private fun RadarView() {
+    val ctx = LocalContext.current
+    val loader = remember {
+        ImageLoader.Builder(ctx)
+            .components { if (Build.VERSION.SDK_INT >= 28) add(ImageDecoderDecoder.Factory()) else add(GifDecoder.Factory()) }
+            .memoryCachePolicy(CachePolicy.DISABLED)
+            .diskCachePolicy(CachePolicy.DISABLED)
+            .build()
+    }
+    DisposableEffect(Unit) { onDispose { loader.shutdown() } }
+    val fr = remember { FocusRequester() }
+    var gif by remember { mutableStateOf<ByteArray?>(null) }
+    var gotAt by remember { mutableLongStateOf(0L) }
+    var loading by remember { mutableStateOf(true) }
+    var failed by remember { mutableStateOf(false) }
+    var retry by remember { mutableIntStateOf(0) }
+
+    LaunchedEffect(Unit) { runCatching { fr.requestFocus() } }
+    LaunchedEffect(retry) {
+        failed = false
+        while (true) {
+            loading = true
+            val b = fetchRadarGif()
+            loading = false
+            if (b != null) { gif = b; gotAt = System.currentTimeMillis() }
+            else if (gif == null) { failed = true; return@LaunchedEffect }
+            delay(if (b != null) RADAR_REFRESH_MS else RADAR_RETRY_MS)
+        }
+    }
+
+    Box(
+        Modifier.fillMaxSize()
+            .background(Color.Black)
+            .focusRequester(fr)
+            .focusProperties { exit = { FocusRequester.Cancel } }
+            .onPreviewKeyEvent { e ->
+                when {
+                    e.key == Key.Back -> false                      // to the BackHandler
+                    isOkKey(e.key) -> {
+                        if (e.type == KeyEventType.KeyUp && failed && !loading) retry++
+                        true
+                    }
+                    e.key in RADAR_ARROWS -> true                   // nothing underneath may move
+                    else -> false
+                }
+            }
+            .focusable(),
+        contentAlignment = Alignment.Center,
+    ) {
+        val bytes = gif
+        if (bytes != null) {
+            val req = remember(bytes) {
+                ImageRequest.Builder(ctx).data(ByteBuffer.wrap(bytes)).crossfade(false).build()
+            }
+            AsyncImage(
+                model = req,
+                imageLoader = loader,
+                contentDescription = "Radar loop",
+                contentScale = ContentScale.Fit,
+                filterQuality = FilterQuality.High,
+                modifier = Modifier.fillMaxSize(),
+            )
+        } else if (failed) {
+            Text("Radar unavailable, press OK to retry", fontSize = 22.sp, color = Pal.Dim)
+        } else {
+            CircularProgressIndicator(color = LocalAccent.current)
+        }
+        Row(
+            Modifier.align(Alignment.TopStart).padding(horizontal = 24.dp, vertical = 16.dp)
+                .background(Color(0x99000000), RoundedCornerShape(8.dp)).padding(horizontal = 12.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            val upd = if (gotAt > 0) "  ·  Updated " + SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date(gotAt)) else ""
+            Text("Radar  ·  NWS KIWX Northern Indiana$upd", fontSize = 14.sp, color = Color.White)
+            if (loading && bytes != null) Text("  ·  Refreshing…", fontSize = 14.sp, color = Pal.Dim)
+        }
+        Text(
+            "Back to close", fontSize = 13.sp, color = Pal.Dim,
+            modifier = Modifier.align(Alignment.TopEnd).padding(horizontal = 24.dp, vertical = 22.dp),
+        )
     }
 }
 

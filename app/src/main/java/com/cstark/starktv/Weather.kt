@@ -210,6 +210,25 @@ suspend fun refreshAlerts(prefs: Prefs): Boolean = withContext(Dispatchers.IO) {
     }
 }
 
+/** NWS radar loop for the Northern Indiana station KIWX (North Webster, about 20 miles from Columbia City). */
+const val RADAR_GIF_URL = "https://radar.weather.gov/ridge/standard/KIWX_loop.gif"
+
+/** Downloads the current radar loop (an animated GIF). Null if it fails or the answer isn't a GIF. */
+suspend fun fetchRadarGif(): ByteArray? = withContext(Dispatchers.IO) {
+    try {
+        val req = Request.Builder().url(RADAR_GIF_URL)
+            .header("User-Agent", "StarskyTV/1.0 (home TV app)")
+            .header("Cache-Control", "no-cache")
+            .build()
+        http.newCall(req).execute().use { r ->
+            val b = if (r.isSuccessful) r.body?.bytes() else null
+            b?.takeIf { it.size > 6 && String(it, 0, 3, Charsets.US_ASCII) == "GIF" }
+        }
+    } catch (e: Exception) {
+        null
+    }
+}
+
 fun Weather.temp(celsius: Boolean): String =
     if (celsius) "${tempC.roundToInt()}°" else "${(tempC * 9 / 5 + 32).roundToInt()}°"
 
