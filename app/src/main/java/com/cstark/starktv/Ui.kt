@@ -53,8 +53,38 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.max
+import androidx.compose.ui.unit.min
 
 val LocalAccent = compositionLocalOf { Color(0xFFE5A00D) }
+
+/**
+ * Layout sizes from the real screen (dp), so they fit any TV, not just one. [side] and [bottom] are the overscan-safe
+ * margins: 5% of the screen width / height (bottom at least 32dp); nothing is drawn closer to the TV edge than that
+ * (backgrounds, the player and the weather page excepted). [posterH] is the standard 2:3 poster height: at most 225dp
+ * (the old fixed size) and at most 40% of the screen height (216dp on a 1080p SHIELD, which is 960x540dp).
+ */
+class TvDims(val screenW: Dp, val screenH: Dp) {
+    val side: Dp = screenW * 0.05f
+    val bottom: Dp = max(32.dp, screenH * 0.05f)
+    val posterH: Dp = min(225.dp, screenH * 0.40f)
+    val posterW: Dp get() = posterW(posterH)
+    /** Grid column width for posters of [posterH]: the card plus the 16dp gap. */
+    val gridCell: Dp get() = posterW + 16.dp
+}
+
+fun posterW(h: Dp): Dp = h * 2f / 3f
+
+@Composable
+fun tvDims(): TvDims {
+    val c = LocalConfiguration.current
+    return remember(c.screenWidthDp, c.screenHeightDp) { TvDims(c.screenWidthDp.dp, c.screenHeightDp.dp) }
+}
 
 /** Posters from your server go through Plex's resizer; ready-made web URLs (Watchlist) are used as they are. */
 fun PlexApi.pic(path: String?, w: Int, h: Int): String? =
@@ -180,6 +210,12 @@ fun Centered(text: String) {
     }
 }
 
+/**
+ * Poster (2:3) or landscape (16:9) card with its title under it. [posterH] is the 2:3 height (default: [TvDims.posterH]);
+ * landscape cards are 70% of that tall. With [revealLabel] (default) focusing a card also scrolls its title line into
+ * view, so grids and rows never leave the label under the bottom edge; Home rows pass false (they snap whole rows).
+ */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun PosterCard(
     api: PlexApi,
@@ -188,12 +224,23 @@ fun PosterCard(
     fr: FocusRequester? = null,
     onFocus: (() -> Unit)? = null,
     onLongPress: (() -> Unit)? = null,
+    posterH: Dp = tvDims().posterH,
+    revealLabel: Boolean = true,
     onClick: () -> Unit,
 ) {
-    val w = if (landscape) 280.dp else 150.dp
-    val h = if (landscape) 158.dp else 225.dp
-    Column(Modifier.width(w)) {
-        Focusable(Modifier.size(w, h), fr, 1.06f, onClick, onFocus, onLongPress) {
+    val h = if (landscape) posterH * 0.70f else posterH
+    val w = if (landscape) h * 16f / 9f else posterW(posterH)
+    val reveal = remember { BringIntoViewRequester() }
+    val scope = rememberCoroutineScope()
+    Column(Modifier.width(w).bringIntoViewRequester(reveal)) {
+        Focusable(
+            Modifier.size(w, h), fr, 1.06f, onClick,
+            onFocus = {
+                onFocus?.invoke()
+                if (revealLabel) scope.launch { delay(30); reveal.bringIntoView() }
+            },
+            onLongPress = onLongPress,
+        ) {
             val path = if (landscape) {
                 if (item.type == "episode") item.thumb ?: item.art else item.art ?: item.thumb
             } else {

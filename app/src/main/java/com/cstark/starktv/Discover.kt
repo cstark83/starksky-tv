@@ -12,6 +12,9 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -106,9 +109,17 @@ suspend fun loadDiscover(api: PlexApi, ov: OverseerrApi, home: HomeData) {
 }
 
 @Composable
+@OptIn(ExperimentalFoundationApi::class)
 fun MediaCard(m: Media, fr: FocusRequester? = null, onClick: () -> Unit) {
-    Column(Modifier.width(150.dp)) {
-        Focusable(Modifier.size(150.dp, 225.dp), fr, 1.06f, onClick) {
+    // same size as PosterCard; focusing it also scrolls its title + year into view
+    val tv = tvDims()
+    val reveal = remember { BringIntoViewRequester() }
+    val scope = rememberCoroutineScope()
+    Column(Modifier.width(tv.posterW).bringIntoViewRequester(reveal)) {
+        Focusable(
+            Modifier.size(tv.posterW, tv.posterH), fr, 1.06f, onClick,
+            onFocus = { scope.launch { delay(30); reveal.bringIntoView() } },
+        ) {
             AsyncImage(
                 model = tmdbImg(m.poster, "w342"),
                 contentDescription = m.title,
@@ -155,7 +166,7 @@ fun DiscoverScreen(home: HomeData, ov: OverseerrApi, onRequest: (Media) -> Unit)
     Column(Modifier.fillMaxSize().onFocusChanged { if (it.hasFocus) NavMemory.restoreTo = "discover" }) {
         // Up from these chips goes to the Discover tab chip (not the nearest chip, the profile one)
         Row(
-            Modifier.padding(start = 48.dp, top = 8.dp, bottom = 12.dp).focusProperties { up = home.discoverChipFr },
+            Modifier.padding(start = tvDims().side, top = 8.dp, bottom = 12.dp).focusProperties { up = home.discoverChipFr },
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Chip("For you", s.mode == 0, compact = true) { s.mode = 0 }
@@ -200,7 +211,7 @@ private fun DiscoverSearch(ov: OverseerrApi, onRequest: (Media) -> Unit) {
     }
     LaunchedEffect(Unit) { runCatching { field.requestFocus() } }
 
-    Column(Modifier.fillMaxSize().padding(horizontal = 48.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+    Column(Modifier.fillMaxSize().padding(horizontal = tvDims().side), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             BasicTextField(
                 value = s.query,
@@ -245,8 +256,8 @@ private fun DiscoverSearch(ov: OverseerrApi, onRequest: (Media) -> Unit) {
         }
         if (s.searchStatus.isNotEmpty()) Text(s.searchStatus, fontSize = 18.sp, color = Pal.Dim)
         LazyVerticalGrid(
-            columns = GridCells.Adaptive(166.dp),
-            contentPadding = PaddingValues(bottom = 32.dp),
+            columns = GridCells.Adaptive(tvDims().gridCell),
+            contentPadding = PaddingValues(bottom = 12.dp),
             horizontalArrangement = Arrangement.spacedBy(16.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {
@@ -277,9 +288,10 @@ private fun DiscoverGenres(ov: OverseerrApi, onRequest: (Media) -> Unit) {
         s.genreStatus = ""
     }
 
+    val tv = tvDims()
     LazyVerticalGrid(
-        columns = GridCells.Adaptive(166.dp),
-        contentPadding = PaddingValues(start = 48.dp, end = 48.dp, bottom = 32.dp),
+        columns = GridCells.Adaptive(tv.gridCell),
+        contentPadding = PaddingValues(start = tv.side, end = tv.side, bottom = 12.dp),
         horizontalArrangement = Arrangement.spacedBy(16.dp),
         verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
@@ -345,8 +357,9 @@ private fun DiscoverRows(home: HomeData, onRequest: (Media) -> Unit) {
         if (restoring == null || NavMemory.take("discover")) runCatching { first.requestFocus() }
     }
 
+    val tv = tvDims()
     LazyColumn(
-        contentPadding = PaddingValues(top = 8.dp, bottom = 48.dp),
+        contentPadding = PaddingValues(top = 8.dp, bottom = 12.dp),
         verticalArrangement = Arrangement.spacedBy(24.dp),
     ) {
         itemsIndexed(rows) { ri, row ->
@@ -356,10 +369,10 @@ private fun DiscoverRows(home: HomeData, onRequest: (Media) -> Unit) {
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Light,
                     letterSpacing = 1.sp,
-                    modifier = Modifier.padding(start = 48.dp, bottom = 10.dp),
+                    modifier = Modifier.padding(start = tv.side, bottom = 10.dp),
                 )
                 LazyRow(
-                    contentPadding = PaddingValues(horizontal = 48.dp),
+                    contentPadding = PaddingValues(horizontal = tv.side),
                     horizontalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
                     itemsIndexed(row.second) { ii, m ->
@@ -391,7 +404,7 @@ fun RequestScreen(api: PlexApi, ov: OverseerrApi, media: Media, onClose: () -> U
             contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxSize().alpha(0.22f),
         )
-        Row(Modifier.padding(48.dp), horizontalArrangement = Arrangement.spacedBy(32.dp)) {
+        Row(Modifier.padding(horizontal = tvDims().side, vertical = 48.dp), horizontalArrangement = Arrangement.spacedBy(32.dp)) {
             AsyncImage(
                 model = tmdbImg(media.poster, "w500"),
                 contentDescription = media.title,

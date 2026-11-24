@@ -154,7 +154,9 @@ fun SearchScreen(api: PlexApi, ov: OverseerrApi, onRequest: (Media) -> Unit, onO
     }
 
     Box(Modifier.fillMaxSize().background(Pal.Bg)) {
-        Column(Modifier.fillMaxSize().padding(horizontal = 48.dp, vertical = 24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        val tv = tvDims()
+        // bottom: the safe margin, so the grid (and a focused poster's title) ends above the TV edge
+        Column(Modifier.fillMaxSize().padding(start = tv.side, end = tv.side, top = 24.dp, bottom = tv.bottom), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 BasicTextField(
                     value = query,
@@ -212,8 +214,8 @@ fun SearchScreen(api: PlexApi, ov: OverseerrApi, onRequest: (Media) -> Unit, onO
             if (status.isNotEmpty()) Text(status, fontSize = 18.sp, color = Pal.Dim)
             LazyVerticalGrid(
                 state = SearchMem.grid,
-                columns = GridCells.Adaptive(166.dp),
-                contentPadding = PaddingValues(bottom = 32.dp),
+                columns = GridCells.Adaptive(tv.gridCell),
+                contentPadding = PaddingValues(bottom = 12.dp),
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
                 verticalArrangement = Arrangement.spacedBy(20.dp),
             ) {

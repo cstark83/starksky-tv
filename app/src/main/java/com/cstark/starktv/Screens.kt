@@ -246,7 +246,7 @@ fun ProfilesScreen(api: PlexApi, prefs: Prefs, onDone: () -> Unit) {
         Text("Who's watching?", fontSize = 32.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(32.dp))
         Row(
-            Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 48.dp),
+            Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = tvDims().side),
             horizontalArrangement = Arrangement.spacedBy(28.dp),
         ) {
             list.forEachIndexed { i, p ->
@@ -482,7 +482,8 @@ fun MainScreen(
             if (home.tab == 0) HeroBackground(api, home.selected)
             Column(Modifier.fillMaxSize()) {
                 TopBar(prefs, home, onSearch, onSwitchProfile, onWeather) { openSpotify(ctx) }
-                Box(Modifier.weight(1f).fillMaxWidth()) {
+                // bottom safe margin (TV overscan) for every tab; Home sizes its rows from what is left
+                Box(Modifier.weight(1f).fillMaxWidth().padding(bottom = tvDims().bottom)) {
                     val t = home.tab
                     when {
                         t == 0 -> HomeScreen(api, home, ov, onDetail, onPlay, onNowPlaying, onRequest)
@@ -592,9 +593,10 @@ fun LibraryScreen(api: PlexApi, section: Section, refresh: Int, onPlay: (Item) -
         }
     }
 
+    val tv = tvDims()
     Box(Modifier.fillMaxSize()) {
     Column(Modifier.fillMaxSize()) {
-        Row(Modifier.padding(horizontal = 48.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(Modifier.padding(horizontal = tv.side, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Chip("A–Z", sort == "titleSort:asc") { sort = "titleSort:asc"; NavMemory.libSort[section.key] = sort }
             Chip("Recently Added", sort == "addedAt:desc") { sort = "addedAt:desc"; NavMemory.libSort[section.key] = sort }
         }
@@ -614,9 +616,10 @@ fun LibraryScreen(api: PlexApi, section: Section, refresh: Int, onPlay: (Item) -
                 LazyVerticalGrid(
                     state = gridState,
                     modifier = Modifier.weight(1f),
-                    columns = GridCells.Adaptive(166.dp),
-                    // with the index, 28dp of the right padding moves into the letter column, so posters keep their size
-                    contentPadding = PaddingValues(start = 48.dp, end = if (showAz) 20.dp else 48.dp, top = 20.dp, bottom = 20.dp),
+                    columns = GridCells.Adaptive(tv.gridCell),
+                    // with the index, 28dp of the right padding moves into the letter column, so posters keep their size.
+                    // The grid ends at the bottom safe margin (MainScreen); focusing a poster also scrolls its title into view.
+                    contentPadding = PaddingValues(start = tv.side, end = if (showAz) maxOf(tv.side - 28.dp, 8.dp) else tv.side, top = 20.dp, bottom = 12.dp),
                     horizontalArrangement = Arrangement.spacedBy(16.dp),
                     verticalArrangement = Arrangement.spacedBy(20.dp),
                 ) {
@@ -721,7 +724,7 @@ fun SettingsScreen(
     var celsius by remember { mutableStateOf(prefs.celsius) }
     var daily by remember { mutableStateOf(prefs.introDaily) }
     val ctx = LocalContext.current
-    Column(Modifier.verticalScroll(rememberScrollState()).padding(48.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+    Column(Modifier.verticalScroll(rememberScrollState()).padding(horizontal = tvDims().side, vertical = 32.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Text("Profile: ${prefs.userName ?: "—"}", fontSize = 18.sp)
         Text("Server: ${prefs.serverName ?: "—"}  (${api.base})", fontSize = 14.sp, color = Pal.Dim)
         Chip("Subtitles on by default: ${if (subs) "On" else "Off"}") {
@@ -914,9 +917,12 @@ fun DetailScreen(
             contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxSize().alpha(0.22f),
         )
+        val tv = tvDims()
         LazyColumn(
             state = detailList,
-            contentPadding = PaddingValues(48.dp),
+            // the list ends at the bottom safe margin, so a focused episode row is never under the TV edge
+            modifier = Modifier.padding(bottom = tv.bottom),
+            contentPadding = PaddingValues(start = tv.side, end = tv.side, top = 48.dp, bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             item {

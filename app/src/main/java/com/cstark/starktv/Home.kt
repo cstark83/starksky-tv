@@ -57,6 +57,9 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.ui.unit.sp
 import androidx.core.graphics.ColorUtils
 import androidx.palette.graphics.Palette
@@ -152,7 +155,7 @@ fun TopBar(prefs: Prefs, home: HomeData, onSearch: () -> Unit, onProfile: () -> 
         }
     }
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = 48.dp, vertical = 14.dp),
+        Modifier.fillMaxWidth().padding(horizontal = tvDims().side, vertical = 14.dp),
         verticalAlignment = Alignment.Top,
     ) {
         ClockBlock()
@@ -254,7 +257,12 @@ private fun HeroInfo(
     onMarkWatched: () -> Unit,
     onRemove: () -> Unit,
     onExternal: () -> Unit,
+    space: Dp = 400.dp,
 ) {
+    // Fit the hero area Home gives us: a smaller title on one line when space is short, the synopsis only with room
+    val roomy = space >= 190.dp
+    val titleSize = if (space >= 170.dp) 52.sp else 40.sp
+    val showSummary = space >= 240.dp
     val playable = item.type == "episode" || item.type == "movie"
     val remaining = if (item.duration > 0) item.duration - item.viewOffset else 0L
     val started = item.viewOffset > 0
@@ -273,10 +281,10 @@ private fun HeroInfo(
         Text(
             item.label.uppercase(),
             fontFamily = FontFamily.Serif,
-            fontSize = 52.sp,
-            lineHeight = 60.sp,
+            fontSize = titleSize,
+            lineHeight = titleSize * 1.15f,
             letterSpacing = 1.sp,
-            maxLines = 2,
+            maxLines = if (roomy) 2 else 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.padding(bottom = 6.dp),
         )
@@ -289,7 +297,7 @@ private fun HeroInfo(
         } else {
             Text(hint, fontSize = 12.sp, color = Pal.Dim, maxLines = 1, modifier = Modifier.padding(top = 2.dp).alpha(0.6f))
         }
-        if (item.summary.isNotBlank()) {
+        if (showSummary && item.summary.isNotBlank()) {
             Text(
                 item.summary,
                 fontSize = 14.sp,
@@ -385,9 +393,24 @@ fun HomeScreen(
         if (focusedRow >= 0) listState.animateScrollToItem(focusedRow)
     }
 
+    // Sizes from the real space (MainScreen already keeps the bottom safe margin free): the poster rows get room for one
+    // FULL row (title, poster incl. its focus scale-up, label), the hero gets the rest, but hero + top bar stay within
+    // ~45% of the screen. The hero shrinks before the posters do; posters never go below 150dp.
+    val tv = tvDims()
+    val density = LocalDensity.current
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+    val avail = maxHeight
+    val rowTitleH = with(density) { 18.sp.toDp() } * 1.4f + 10.dp
+    val labelH = 8.dp + with(density) { 14.sp.toDp() } * 1.45f
+    val rowChrome = 12.dp + rowTitleH + labelH                       // list top padding + row title + poster label
+    val heroMin = 140.dp
+    val posterH = ((avail - heroMin - rowChrome) / 1.06f).coerceIn(150.dp, 225.dp)
+    val rowsNeed = rowChrome + posterH * 1.06f
+    val heroCap = maxOf(heroMin, tv.screenH * 0.45f - (tv.screenH - tv.bottom - avail))  // top bar counts toward the 45%
+    val heroH = (avail - rowsNeed).coerceIn(heroMin, heroCap)
     Column(Modifier.fillMaxSize()) {
         Box(
-            Modifier.fillMaxWidth().weight(0.46f).padding(horizontal = 48.dp),
+            Modifier.fillMaxWidth().height(heroH).clipToBounds().padding(horizontal = tv.side),
             contentAlignment = Alignment.BottomStart,
         ) {
             val sel = home.selected
@@ -411,17 +434,18 @@ fun HomeScreen(
                         }
                     },
                     onExternal = { openExternal(sel) },
+                    space = heroH,
                 )
             }
             if (NowPlaying.active) {
                 Box(Modifier.align(Alignment.BottomEnd)) { NowPlayingPill(onNowPlaying) }
             }
         }
-        Box(Modifier.weight(0.54f).fillMaxWidth()) {
+        Box(Modifier.weight(1f).fillMaxWidth()) {
             LazyColumn(
                 modifier = Modifier.fillMaxSize().clipToBounds(),
                 state = listState,
-                contentPadding = PaddingValues(top = 12.dp, bottom = 48.dp),
+                contentPadding = PaddingValues(top = 12.dp, bottom = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(20.dp),
             ) {
                 itemsIndexed(rows) { ri, row ->
@@ -431,11 +455,11 @@ fun HomeScreen(
                             fontSize = 18.sp,
                             fontWeight = FontWeight.Light,
                             letterSpacing = 1.sp,
-                            modifier = Modifier.padding(start = 48.dp, bottom = 10.dp),
+                            modifier = Modifier.padding(start = tv.side, bottom = 10.dp),
                         )
                         LazyRow(
                             state = home.rowStates.getOrPut(row.title) { LazyListState() },
-                            contentPadding = PaddingValues(horizontal = 48.dp),
+                            contentPadding = PaddingValues(horizontal = tv.side),
                             horizontalArrangement = Arrangement.spacedBy(16.dp),
                         ) {
                             itemsIndexed(row.items) { ii, item ->
@@ -457,6 +481,8 @@ fun HomeScreen(
                                         focusedRow = ri
                                     },
                                     onLongPress = if (row.external) null else ({ menu = item to row.playDirect }),
+                                    posterH = posterH,
+                                    revealLabel = false,
                                 ) {
                                     if (row.external) openExternal(item) else if (row.playDirect) onPlay(item) else onDetail(item.showKey)
                                 }
@@ -471,6 +497,7 @@ fun HomeScreen(
                     .background(Brush.verticalGradient(listOf(Color(0xFF0A0A0A), Color.Transparent))),
             )
         }
+    }
     }
     // Options menu (hold OK for HOLD_OK_MS on a Home row): drawn over the screen, focus starts on the first option and
     // stays inside; it stays open after OK is released and closes only when you pick an option or press Back.
