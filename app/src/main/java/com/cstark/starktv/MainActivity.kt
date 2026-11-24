@@ -55,6 +55,8 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         val prefs = Prefs(applicationContext)
         val api = PlexApi(prefs)
+        // Tower relaunches the app after an "Update now" install with skip_intro=true: straight to Home, no intro
+        val skipIntro = intent?.getBooleanExtra("skip_intro", false) == true
         setContent {
             MaterialTheme(
                 colorScheme = darkColorScheme(
@@ -66,7 +68,7 @@ class MainActivity : ComponentActivity() {
                 ),
             ) {
                 Surface(Modifier.fillMaxSize(), color = Pal.Bg, contentColor = Color.White) {
-                    App(api, prefs)
+                    App(api, prefs, skipIntro)
                 }
             }
         }
@@ -74,11 +76,11 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun App(api: PlexApi, prefs: Prefs) {
+fun App(api: PlexApi, prefs: Prefs, skipIntro: Boolean = false) {
     val stack = remember {
         val now = System.currentTimeMillis()
         val today = (now + java.util.TimeZone.getDefault().getOffset(now)) / 86_400_000L
-        val showIntro = prefs.introStyle != INTRO_OFF && !(prefs.introDaily && prefs.lastIntroDay == today)
+        val showIntro = !skipIntro && prefs.introStyle != INTRO_OFF && !(prefs.introDaily && prefs.lastIntroDay == today)
         if (showIntro) prefs.lastIntroDay = today
         val first: Screen = if (showIntro) Screen.Intro() else Screen.Boot
         mutableStateListOf(first)

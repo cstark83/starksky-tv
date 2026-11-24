@@ -493,6 +493,11 @@ fun MainScreen(
                     }
                 }
             }
+            // "Update" on the top bar: full-screen progress; Back cancels (and stops a download)
+            if (Updater.nowOpen) {
+                BackHandler { Updater.cancelUpdateNow() }
+                UpdatePanel()
+            }
             if (updatedTo > 0) {
                 // plain text, not focusable: never takes focus from Home
                 Text(

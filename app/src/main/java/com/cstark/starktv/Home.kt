@@ -147,6 +147,8 @@ fun WeatherBlock(prefs: Prefs, onOpen: () -> Unit) {
 @Composable
 fun TopBar(prefs: Prefs, home: HomeData, onSearch: () -> Unit, onProfile: () -> Unit, onWeather: () -> Unit, onSpotify: () -> Unit) {
     val searchFr = remember { FocusRequester() }
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
     // Back from Search: focus returns to the Search chip (after the tab content's own first focus)
     LaunchedEffect(Unit) {
         if (NavMemory.pending == "chip:Search") {
@@ -170,7 +172,8 @@ fun TopBar(prefs: Prefs, home: HomeData, onSearch: () -> Unit, onProfile: () -> 
             Chip("Search", false, compact = true, fr = searchFr, onFocus = { NavMemory.restoreTo = "chip:Search" }, onClick = onSearch)
             Chip("Spotify", false, compact = true, onClick = onSpotify)
             if (!prefs.restricted) Chip("Discover", home.tab == home.discoverTab, compact = true, fr = home.discoverChipFr) { home.tab = home.discoverTab } // kid profiles: no Discover
-            if (Updater.newBuild > 0) Chip("Update", false, compact = true) { home.tab = home.settingsTab }
+            // Update: installs right away (Tower first, this TV's own installer as fallback); see UpdatePanel.kt
+            if (Updater.newBuild > 0) Chip("Update", false, compact = true) { Updater.startUpdateNow(ctx, scope) }
             Chip("Settings", home.tab == home.settingsTab, compact = true) { home.tab = home.settingsTab }
         }
         WeatherBlock(prefs, onWeather)
