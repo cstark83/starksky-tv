@@ -51,6 +51,7 @@ import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.ui.PlayerView
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.OkHttpClient
@@ -99,14 +100,14 @@ private const val TOWER_MS = 20_000L
 private const val TOWER_TRAILER_URL = "http://192.168.1.8:8480/trailer?yt="
 /** Resolved YouTube stream URLs expire (about 6 h); keep them for 4 h. */
 private const val YT_CACHE_MS = 4 * 3600_000L
-private const val BROWSER_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0"
+internal const val BROWSER_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0"
 
 private fun tlog(ctx: Context, msg: String) = PlayLog.add(ctx, "trailer: $msg")
-private fun hostOf(url: String) = runCatching { Uri.parse(url).host }.getOrNull() ?: "?"
-private fun now() = SystemClock.elapsedRealtime()
+internal fun hostOf(url: String) = runCatching { Uri.parse(url).host }.getOrNull() ?: "?"
+internal fun now() = SystemClock.elapsedRealtime()
 
 /** One thing to play: how to build it, plus where it comes from (for the log). */
-private class Playable(val label: String, val host: String, val build: (DataSource.Factory) -> MediaSource)
+internal class Playable(val label: String, val host: String, val build: (DataSource.Factory) -> MediaSource)
 
 /** Video ids that failed this app session (Retry and later presses skip them). */
 private val failedYt: MutableSet<String> = Collections.synchronizedSet(HashSet())
@@ -114,7 +115,7 @@ private val failedYt: MutableSet<String> = Collections.synchronizedSet(HashSet()
 // ---------------------------------------------------------------- NewPipeExtractor (in-app YouTube)
 
 /** NewPipeExtractor's HTTP client: OkHttp, 15 s timeouts, browser User-Agent, en-US. Logs each request's time (no query). */
-private object NpDownloader : Downloader() {
+internal object NpDownloader : Downloader() {
     @Volatile var sink: ((String) -> Unit)? = null
     private val http = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
@@ -152,7 +153,7 @@ private object NpDownloader : Downloader() {
     }
 }
 
-private object YouTube {
+internal object YouTube {
     /** kind: dash | merge | hls | progressive. */
     data class Resolved(val kind: String, val url: String, val audioUrl: String? = null, val height: Int = 0)
 
@@ -248,7 +249,7 @@ private fun progressive(ds: DataSource.Factory, url: String): MediaSource =
     ProgressiveMediaSource.Factory(ds).createMediaSource(MediaItem.fromUri(url))
 
 /** Extraction said the video itself can't be played (UNPLAYABLE, removed, private, age/region restricted, ...). */
-private fun unplayable(e: Throwable): Boolean {
+internal fun unplayable(e: Throwable): Boolean {
     if (e is ContentNotAvailableException) return true
     val m = (e.message ?: "").lowercase()
     return listOf("unplayable", "not available", "unavailable", "age", "region", "country", "private", "removed").any { m.contains(it) }
@@ -256,7 +257,7 @@ private fun unplayable(e: Throwable): Boolean {
 
 // ---------------------------------------------------------------- Tower backup (yt-dlp)
 
-private val towerHttp = OkHttpClient.Builder()
+internal val towerHttp = OkHttpClient.Builder()
     .connectTimeout(5, TimeUnit.SECONDS)
     .readTimeout(TOWER_MS, TimeUnit.MILLISECONDS)
     .callTimeout(TOWER_MS, TimeUnit.MILLISECONDS)
@@ -264,7 +265,7 @@ private val towerHttp = OkHttpClient.Builder()
 
 /** Asks Tower for direct stream URLs of [id]: (merged 1080p, muxed) playables, or throws with Tower's reason. */
 @OptIn(UnstableApi::class)
-private suspend fun towerPlayables(id: String): List<Playable> = withContext(Dispatchers.IO) {
+internal suspend fun towerPlayables(id: String): List<Playable> = runInterruptible(Dispatchers.IO) {
     val req = okhttp3.Request.Builder().url(TOWER_TRAILER_URL + id).header("User-Agent", "Starsky TV").build()
     val j = towerHttp.newCall(req).execute().use { r ->
         val body = r.body?.string() ?: ""
@@ -300,7 +301,7 @@ private suspend fun towerPlayables(id: String): List<Playable> = withContext(Dis
 
 /** Counts bytes the player downloads (to tell "still buffering" from "stuck"). */
 @OptIn(UnstableApi::class)
-private class ByteCounter : TransferListener {
+internal class ByteCounter : TransferListener {
     @Volatile var bytes = 0L
     override fun onTransferInitializing(source: DataSource, dataSpec: DataSpec, isNetwork: Boolean) {}
     override fun onTransferStart(source: DataSource, dataSpec: DataSpec, isNetwork: Boolean) {}
@@ -308,7 +309,7 @@ private class ByteCounter : TransferListener {
     override fun onTransferEnd(source: DataSource, dataSpec: DataSpec, isNetwork: Boolean) {}
 }
 
-private class PlayResult(val ok: Boolean, val reason: String, val ms: Long, val timeout: Boolean)
+internal class PlayResult(val ok: Boolean, val reason: String, val ms: Long, val timeout: Boolean)
 
 private fun stateName(s: Int) = when (s) {
     Player.STATE_IDLE -> "IDLE"
@@ -320,7 +321,7 @@ private fun stateName(s: Int) = when (s) {
 
 /** Why a playback attempt failed: HTTP status + host when there is one. */
 @OptIn(UnstableApi::class)
-private fun describe(e: PlaybackException): String {
+internal fun describe(e: PlaybackException): String {
     var c: Throwable? = e
     while (c != null) {
         if (c is HttpDataSource.InvalidResponseCodeException) return "HTTP ${c.responseCode} from ${c.dataSpec.uri.host}"
@@ -335,7 +336,7 @@ private fun describe(e: PlaybackException): String {
  * passed and no bytes arrived for [STALL_MS], or at [maxMs]. Runs on the main thread (player calls), polling every 200 ms.
  */
 @OptIn(UnstableApi::class)
-private suspend fun tryPlay(player: ExoPlayer, dsf: DataSource.Factory, counter: ByteCounter, p: Playable, startMs: Long, maxMs: Long): PlayResult {
+internal suspend fun tryPlay(player: ExoPlayer, dsf: DataSource.Factory, counter: ByteCounter, p: Playable, startMs: Long, maxMs: Long): PlayResult {
     var err: String? = null
     val l = object : Player.Listener {
         override fun onPlayerError(error: PlaybackException) { err = describe(error) }

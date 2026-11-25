@@ -435,6 +435,7 @@ fun MainScreen(
     onSwitchProfile: () -> Unit,
     onSignOut: () -> Unit,
     onWeather: () -> Unit,
+    onYtVideo: (YtVideo) -> Unit,
 ) {
     val ctx = LocalContext.current
     LaunchedEffect(Unit) { Updater.check(ctx) }
@@ -484,13 +485,23 @@ fun MainScreen(
         Box(Modifier.fillMaxSize()) {
             if (home.tab == 0) HeroBackground(api, home.selected)
             Column(Modifier.fillMaxSize()) {
-                TopBar(prefs, home, onSearch, onSwitchProfile, onWeather) { openSpotify(ctx) }
+                // Spotify: Starsky's own Now Playing screen (it offers to open the Spotify app only when nothing is playing)
+                TopBar(prefs, home, onSearch, onSwitchProfile, onWeather, onNowPlaying)
                 // bottom safe margin (TV overscan) for every tab; Home sizes its rows from what is left
                 Box(Modifier.weight(1f).fillMaxWidth().padding(bottom = tvDims().bottom)) {
                     val t = home.tab
                     when {
                         t == 0 -> HomeScreen(api, home, ov, onDetail, onPlay, onNowPlaying, onRequest)
-                        t <= home.sections.size -> LibraryScreen(api, home.sections[t - 1], refresh, onPlay) { onDetail(it.showKey) }
+                        t <= home.sections.size -> {
+                            val sec = home.sections[t - 1]
+                            // YouTube tab: in-app YouTube (search + trending), Plex's YouTube library one press away.
+                            // Kid profiles keep only the Plex library (online YouTube has no content rating).
+                            if (sec.title.equals("YouTube", ignoreCase = true) && !prefs.restricted) {
+                                YouTubeTab(onYtVideo) { LibraryScreen(api, sec, refresh, onPlay) { onDetail(it.showKey) } }
+                            } else {
+                                LibraryScreen(api, sec, refresh, onPlay) { onDetail(it.showKey) }
+                            }
+                        }
                         t == home.discoverTab -> DiscoverScreen(home, ov, onRequest)
                         else -> SettingsScreen(api, prefs, ov, onPreviewIntro, onSync, onSwitchProfile, onSignOut)
                     }
@@ -748,9 +759,16 @@ fun SettingsScreen(
             celsius = !celsius
             prefs.celsius = celsius
         }
-        Chip(if (hasMusicAccess(ctx)) "Now playing (Spotify): connected" else "Allow now playing (Spotify)") {
+        val musicOk = hasMusicAccess(ctx)
+        Chip(if (musicOk) "Spotify now playing access: allowed" else "Spotify now playing access: NOT allowed — open settings") {
             openAccessSettings(ctx)
         }
+        Text(
+            if (musicOk) "Starsky can show and control what Spotify plays (Spotify button on the top bar)."
+            else "Turn it on: Settings > Apps > Special app access > Notification access > Starsky TV. If the TV has no such screen, from Tower run: adb shell cmd notification allow_listener com.cstark.starktv/com.cstark.starktv.MusicListener",
+            fontSize = 14.sp,
+            color = Pal.Dim,
+        )
         Chip("Opening: ${if (introStyle == INTRO_OFF) "Off" else INTRO_NAMES[introStyle]}") {
             introStyle = (introStyle + 1) % (INTRO_OFF + 1)
             prefs.introStyle = introStyle

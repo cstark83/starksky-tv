@@ -42,7 +42,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -155,7 +157,26 @@ fun NowPlayingScreen(onClose: () -> Unit) {
         label = "drift",
     )
 
+    // Nothing playing (or no access yet): say so, offer to open Spotify once; this screen fills in live when it plays
+    if (!np.active) {
+        NothingPlaying(onClose)
+        return
+    }
+
     Box(Modifier.fillMaxSize().background(Color(0xFF08090C))) {
+        // album art, blurred (scaled down to a few pixels, then up: works on every Android version), tinted by its accent
+        val blurred = remember(np.art) {
+            np.art?.let { runCatching { android.graphics.Bitmap.createScaledBitmap(it, 12, 12, true).asImageBitmap() }.getOrNull() }
+        }
+        if (blurred != null) {
+            Image(
+                blurred, null,
+                Modifier.fillMaxSize().alpha(0.55f),
+                contentScale = ContentScale.Crop,
+                filterQuality = FilterQuality.High,
+            )
+        }
+        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(glow.copy(alpha = 0.25f), Color(0xCC08090C)))))
         Canvas(Modifier.fillMaxSize()) {
             drawRect(
                 Brush.radialGradient(
@@ -273,6 +294,43 @@ private fun VisualizerView(accent: Color) {
             )
         } else if (!NowPlaying.playing) {
             Text("Paused", fontSize = 18.sp, color = Pal.Dim, modifier = Modifier.align(Alignment.TopCenter))
+        }
+    }
+}
+
+@Composable
+private fun NothingPlaying(onClose: () -> Unit) {
+    val ctx = LocalContext.current
+    val first = remember { FocusRequester() }
+    val access = remember { hasMusicAccess(ctx) }
+    LaunchedEffect(Unit) { focusSoon(first) }
+    Box(Modifier.fillMaxSize().background(Color(0xFF08090C)), contentAlignment = Alignment.Center) {
+        Column(
+            Modifier.padding(horizontal = 80.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(18.dp),
+        ) {
+            if (!access) {
+                Text("Starsky can't see Spotify yet", fontSize = 28.sp)
+                Text(
+                    "Allow \"Notification access\" for Starsky TV (Settings > Apps > Special app access), then come back.",
+                    fontSize = 16.sp, color = Pal.Dim, textAlign = TextAlign.Center,
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Chip("Open access settings", fr = first) { openAccessSettings(ctx) }
+                    Chip("Close", onClick = onClose)
+                }
+            } else {
+                Text("Start something in Spotify first", fontSize = 28.sp)
+                Text(
+                    "Spotify opens once. When it plays, press Back (or open Starsky TV again) and this screen shows it.",
+                    fontSize = 16.sp, color = Pal.Dim, textAlign = TextAlign.Center,
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Chip("Open Spotify", fr = first) { openSpotify(ctx) }
+                    Chip("Close", onClick = onClose)
+                }
+            }
         }
     }
 }

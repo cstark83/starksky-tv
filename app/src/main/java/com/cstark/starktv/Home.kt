@@ -147,6 +147,7 @@ fun WeatherBlock(prefs: Prefs, onOpen: () -> Unit) {
 @Composable
 fun TopBar(prefs: Prefs, home: HomeData, onSearch: () -> Unit, onProfile: () -> Unit, onWeather: () -> Unit, onSpotify: () -> Unit) {
     val searchFr = remember { FocusRequester() }
+    val spotifyFr = remember { FocusRequester() }
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     // Back from Search: focus returns to the Search chip (after the tab content's own first focus)
@@ -154,6 +155,11 @@ fun TopBar(prefs: Prefs, home: HomeData, onSearch: () -> Unit, onProfile: () -> 
         if (NavMemory.pending == "chip:Search") {
             delay(150)
             if (NavMemory.take("chip:Search")) focusSoon(searchFr)
+        }
+        // Back from Now Playing opened with the Spotify chip: focus returns to that chip
+        if (NavMemory.pending == "chip:Spotify") {
+            delay(150)
+            if (NavMemory.take("chip:Spotify")) focusSoon(spotifyFr)
         }
     }
     Row(
@@ -170,7 +176,7 @@ fun TopBar(prefs: Prefs, home: HomeData, onSearch: () -> Unit, onProfile: () -> 
             Chip("Home", home.tab == 0, compact = true) { home.tab = 0 }
             home.sections.forEachIndexed { i, s -> Chip(s.title, home.tab == i + 1, compact = true) { home.tab = i + 1 } }
             Chip("Search", false, compact = true, fr = searchFr, onFocus = { NavMemory.restoreTo = "chip:Search" }, onClick = onSearch)
-            Chip("Spotify", false, compact = true, onClick = onSpotify)
+            Chip("Spotify", false, compact = true, fr = spotifyFr, onFocus = { NavMemory.restoreTo = "chip:Spotify" }, onClick = onSpotify)
             if (!prefs.restricted) Chip("Discover", home.tab == home.discoverTab, compact = true, fr = home.discoverChipFr) { home.tab = home.discoverTab } // kid profiles: no Discover
             // Update: installs right away (Tower first, this TV's own installer as fallback); see UpdatePanel.kt
             if (Updater.newBuild > 0) Chip("Update", false, compact = true) { Updater.startUpdateNow(ctx, scope) }

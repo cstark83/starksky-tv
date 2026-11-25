@@ -37,6 +37,8 @@ sealed class Screen {
     data class Play(val key: String, val offset: Long = 0L, val url: String? = null) : Screen()
     /** Trailer for a title: Plex extras, Plex's own trailer, then YouTube via TMDB, all in the app (Trailers.kt). */
     data class Trailer(val req: TrailerReq) : Screen()
+    /** A YouTube video from the YouTube tab, played in the app (YouTubeTab.kt). */
+    data class YtVideo(val id: String, val title: String) : Screen()
 }
 
 /** Lets the activity ask the Compose tree to open Search (remote's search key). */
@@ -169,6 +171,7 @@ fun App(api: PlexApi, prefs: Prefs, skipIntro: Boolean = false) {
             onSwitchProfile = { switchProfile() },
             onSignOut = { signOut() },
             onWeather = { WeatherState.returnFocus = true; stack.add(Screen.Weather) },
+            onYtVideo = { stack.add(Screen.YtVideo(it.id, it.title)) },
         )
 
         Screen.Weather -> WeatherScreen(prefs)
@@ -194,6 +197,8 @@ fun App(api: PlexApi, prefs: Prefs, skipIntro: Boolean = false) {
         }
 
         is Screen.Trailer -> key(s) { TrailerScreen(api, s.req) }
+
+        is Screen.YtVideo -> key(s) { YtVideoScreen(s.id, s.title) }
 
         is Screen.Play -> key(s) {
             PlayerScreen(
