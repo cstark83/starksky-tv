@@ -348,6 +348,9 @@ class HomeData {
     }
 }
 
+/** Most items in the Home "Continue Watching" row (in progress, one per show, most recently watched first). */
+const val CONTINUE_WATCHING_MAX = 15
+
 /** Loads the Home rows. Returns false when Plex couldn't be reached (the old rows, if any, stay on screen). */
 suspend fun loadHome(api: PlexApi, d: HomeData): Boolean {
     try {
@@ -361,7 +364,7 @@ suspend fun loadHome(api: PlexApi, d: HomeData): Boolean {
         val cont = deck
             .filter { it.viewOffset > 0 && it.progress < 0.95f }
             .distinctBy { it.showKey }
-            .take(10)
+            .take(CONTINUE_WATCHING_MAX)
         val contKeys = cont.map { it.showKey }.toSet()
         val next = deck
             .filter { it.viewOffset == 0L && it.showKey !in contKeys }

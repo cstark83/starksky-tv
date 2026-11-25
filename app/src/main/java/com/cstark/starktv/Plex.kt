@@ -282,7 +282,8 @@ class PlexApi(private val prefs: Prefs) {
     }
 
     suspend fun onDeck(): List<Item> =
-        srv("/library/onDeck?X-Plex-Container-Start=0&X-Plex-Container-Size=30").metas()
+        // 60: on deck mixes in-progress items and next episodes; enough for 15 Continue Watching + 12 Next Up after dedupe
+        srv("/library/onDeck?X-Plex-Container-Start=0&X-Plex-Container-Size=60").metas()
 
     suspend fun recent(s: Section): List<Item> {
         val t = if (s.type == "show") 2 else 1
