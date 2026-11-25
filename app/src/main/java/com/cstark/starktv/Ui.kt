@@ -252,8 +252,8 @@ fun PosterCard(
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize().background(Pal.Card),
             )
-            if (item.progress > 0f) {
-                Progress(item.progress, Modifier.align(Alignment.BottomCenter))
+            if (item.shownProgress > 0f) {
+                Progress(item.shownProgress, Modifier.align(Alignment.BottomCenter))
             }
         }
         Text(

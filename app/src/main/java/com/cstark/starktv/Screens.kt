@@ -362,7 +362,7 @@ suspend fun loadHome(api: PlexApi, d: HomeData): Boolean {
         // Split them, keep one entry per show, and cap both rows so they stay short.
         val deck = api.onDeck().distinctBy { it.ratingKey }
         val cont = deck
-            .filter { it.viewOffset > 0 && it.progress < 0.95f }
+            .filter { it.resumable }   // same rule as every Resume label / progress bar
             .distinctBy { it.showKey }
             .take(CONTINUE_WATCHING_MAX)
         val contKeys = cont.map { it.showKey }.toSet()
@@ -563,7 +563,7 @@ fun LibraryScreen(api: PlexApi, section: Section, refresh: Int, onPlay: (Item) -
         val dkey = item.guid?.takeIf { it.startsWith("plex://") }?.substringAfterLast("/")
         val opts = buildList<Pair<String, () -> Unit>> {
             if (playable) {
-                add((if (item.viewOffset > 0) "Resume" else "Play") to { onPlay(item) })
+                add((if (item.resumable) "Resume" else "Play") to { onPlay(item) })
                 add("Details" to { onOpen(item) })
             } else {
                 add("Open" to { onOpen(item) })
@@ -819,7 +819,7 @@ fun SettingsScreen(
 // ---------------------------------------------------------------- details
 
 fun nextUp(eps: List<Item>): Item? =
-    eps.firstOrNull { it.viewOffset > 0 } ?: eps.firstOrNull { it.viewCount == 0 }
+    eps.firstOrNull { it.resumable } ?: eps.firstOrNull { it.viewCount == 0 }
 
 @Composable
 fun DetailScreen(
@@ -878,7 +878,7 @@ fun DetailScreen(
     val top = d.item
     val isShow = top.type == "show"
     val target: Item? = if (isShow) (nextUp(d.episodes) ?: d.episodes.firstOrNull()) else top
-    val resume = target != null && target.viewOffset > 0
+    val resume = target != null && target.resumable
     val seasons = d.episodes.map { it.parentIndex }.distinct().sorted()
     val dkey = top.guid?.takeIf { it.startsWith("plex://") }?.substringAfterLast("/")
     fun toggleWatchlist() {
@@ -894,11 +894,11 @@ fun DetailScreen(
             add((if (resume) "Resume$code" else "Play$code") to { onPlay(t, true) })
             if (resume) add("Start over" to { onPlay(t, false) })
             if (isShow) {
-                add((if (t.viewCount > 0) "Mark${code} unwatched" else "Mark${code} watched") to { mark(t.ratingKey, t.viewCount == 0) })
+                add((if (t.watchedDone) "Mark${code} unwatched" else "Mark${code} watched") to { mark(t.ratingKey, !t.watchedDone) })
                 add("Mark show watched" to { mark(top.ratingKey, true) })
                 add("Mark show unwatched" to { mark(top.ratingKey, false) })
             } else {
-                add((if (top.viewCount > 0) "Mark unwatched" else "Mark watched") to { mark(top.ratingKey, top.viewCount == 0) })
+                add((if (top.watchedDone) "Mark unwatched" else "Mark watched") to { mark(top.ratingKey, !top.watchedDone) })
             }
             if (dkey != null) add((if (dkey in wlKeys) "Remove from Watchlist" else "Add to Watchlist") to { toggleWatchlist() })
         }
@@ -909,7 +909,7 @@ fun DetailScreen(
         val sk = inSeason.firstOrNull()?.parentRatingKey ?: return
         val name = if (sn == 0) "Specials" else "Season $sn"
         val opts = buildList<Pair<String, () -> Unit>> {
-            nextUp(inSeason)?.let { e -> add((if (e.viewOffset > 0) "Resume ${e.epCode}" else "Play ${e.epCode}") to { onPlay(e, true) }) }
+            nextUp(inSeason)?.let { e -> add((if (e.resumable) "Resume ${e.epCode}" else "Play ${e.epCode}") to { onPlay(e, true) }) }
             add("Mark $name watched" to { mark(sk, true) })
             add("Mark $name unwatched" to { mark(sk, false) })
         }
@@ -917,9 +917,9 @@ fun DetailScreen(
     }
     fun episodeMenu(ep: Item, fr: FocusRequester) {
         val opts = buildList<Pair<String, () -> Unit>> {
-            add((if (ep.viewOffset > 0) "Resume" else "Play") to { onPlay(ep, true) })
-            if (ep.viewOffset > 0) add("Start over" to { onPlay(ep, false) })
-            add((if (ep.viewCount > 0) "Mark unwatched" else "Mark watched") to { mark(ep.ratingKey, ep.viewCount == 0) })
+            add((if (ep.resumable) "Resume" else "Play") to { onPlay(ep, true) })
+            if (ep.resumable) add("Start over" to { onPlay(ep, false) })
+            add((if (ep.watchedDone) "Mark unwatched" else "Mark watched") to { mark(ep.ratingKey, !ep.watchedDone) })
             if (dkey != null) add((if (dkey in wlKeys) "Remove show from Watchlist" else "Add show to Watchlist") to { toggleWatchlist() })
         }
         menu.open("${ep.epCode} · ${ep.title}", opts, fr)
@@ -976,10 +976,10 @@ fun DetailScreen(
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             if (isShow) {
-                                val allWatched = d.episodes.isNotEmpty() && d.episodes.all { it.viewCount > 0 }
+                                val allWatched = d.episodes.isNotEmpty() && d.episodes.all { it.watchedDone }
                                 Chip(if (allWatched) "Mark show unwatched" else "Mark show watched") { mark(top.ratingKey, !allWatched) }
                             } else {
-                                val seen = top.viewCount > 0
+                                val seen = top.watchedDone
                                 Chip(if (seen) "Mark unwatched" else "Mark watched") { mark(top.ratingKey, !seen) }
                             }
                             if (dkey != null) {
@@ -1002,7 +1002,7 @@ fun DetailScreen(
                         item {
                             val inSeason = d.episodes.filter { it.parentIndex == season }
                             val seasonKey = inSeason.firstOrNull()?.parentRatingKey
-                            val seasonSeen = inSeason.isNotEmpty() && inSeason.all { it.viewCount > 0 }
+                            val seasonSeen = inSeason.isNotEmpty() && inSeason.all { it.watchedDone }
                             if (seasonKey != null) {
                                 Chip(if (seasonSeen) "Mark season unwatched" else "Mark season watched") { mark(seasonKey, !seasonSeen) }
                             }
@@ -1011,7 +1011,7 @@ fun DetailScreen(
                 }
                 items(d.episodes.filter { it.parentIndex == season }, key = { it.ratingKey }) { ep ->
                     val fr = remember { FocusRequester() }
-                    EpisodeRow(api, ep, fr, onClick = { onPlay(ep, true) }, onLongPress = { episodeMenu(ep, fr) }, onToggle = { mark(ep.ratingKey, ep.viewCount == 0) })
+                    EpisodeRow(api, ep, fr, onClick = { onPlay(ep, true) }, onLongPress = { episodeMenu(ep, fr) }, onToggle = { mark(ep.ratingKey, !ep.watchedDone) })
                 }
             }
         }
@@ -1042,7 +1042,7 @@ fun EpisodeRow(
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize().background(Pal.Card),
                     )
-                    if (ep.progress > 0f) Progress(ep.progress, Modifier.align(Alignment.BottomCenter))
+                    if (ep.shownProgress > 0f) Progress(ep.shownProgress, Modifier.align(Alignment.BottomCenter))
                 }
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text("${ep.index}. ${ep.title}", fontSize = 18.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -1050,7 +1050,10 @@ fun EpisodeRow(
                 }
             }
         }
-        Chip(if (ep.viewCount > 0) "Watched ✓" else "Mark watched", ep.viewCount > 0, onClick = onToggle)
+        // In progress (also a rewatch of a watched episode): "Resume", which plays from the resume point like the row.
+        // Watched only with no active resume point. Mark watched/unwatched stays in the hold-OK menu.
+        if (ep.resumable) Chip("Resume ▶", onClick = onClick)
+        else Chip(if (ep.watchedDone) "Watched ✓" else "Mark watched", ep.watchedDone, onClick = onToggle)
     }
 }
 

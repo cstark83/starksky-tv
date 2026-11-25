@@ -57,6 +57,13 @@ data class Item(
         }
     val epCode: String get() = "S${parentIndex}E${index}"
     val progress: Float get() = if (duration > 0 && viewOffset > 0) viewOffset.toFloat() / duration else 0f
+    /** Has a resume point that counts: started (viewOffset > 0) and not past the 90% watched mark. A rewatch in progress
+     *  (viewCount > 0 plus a new viewOffset) is resumable too. One rule for every label, button and progress bar. */
+    val resumable: Boolean get() = viewOffset > 0 && (duration <= 0 || viewOffset < duration * 0.9)
+    /** "Watched ✓": watched at least once and no active resume point. */
+    val watchedDone: Boolean get() = viewCount > 0 && !resumable
+    /** Progress bar to draw: only for a real resume point (else 0 = no bar). */
+    val shownProgress: Float get() = if (resumable) progress else 0f
 }
 
 data class Section(val key: String, val type: String, val title: String)

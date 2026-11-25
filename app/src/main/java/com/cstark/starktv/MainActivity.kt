@@ -157,7 +157,7 @@ fun App(api: PlexApi, prefs: Prefs, skipIntro: Boolean = false) {
         Screen.Main -> MainScreen(
             api, prefs, home, refresh,
             onDetail = { stack.add(Screen.Detail(it)) },
-            onPlay = { stack.add(Screen.Play(it.ratingKey, it.viewOffset)) },
+            onPlay = { stack.add(Screen.Play(it.ratingKey, if (it.resumable) it.viewOffset else 0L)) },
             onPreviewIntro = { stack.add(Screen.Intro(true)) },
             onNowPlaying = { stack.add(Screen.NowPlaying) },
             ov = ov,
@@ -186,7 +186,7 @@ fun App(api: PlexApi, prefs: Prefs, skipIntro: Boolean = false) {
         is Screen.Detail -> key(s) {
             DetailScreen(
                 api, s.key, refresh,
-                onPlay = { item, resume -> stack.add(Screen.Play(item.ratingKey, if (resume) item.viewOffset else 0L)) },
+                onPlay = { item, resume -> stack.add(Screen.Play(item.ratingKey, if (resume && item.resumable) item.viewOffset else 0L)) },
                 onTrailer = { t -> stack.add(Screen.Play(key = "", url = api.media(t.partKey))) },
             )
         }

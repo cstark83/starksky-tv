@@ -268,7 +268,7 @@ private fun HeroInfo(
     val showSummary = space >= 240.dp
     val playable = item.type == "episode" || item.type == "movie"
     val remaining = if (item.duration > 0) item.duration - item.viewOffset else 0L
-    val started = item.viewOffset > 0
+    val started = item.resumable
     val line1 = when (item.type) {
         "episode" -> "${item.epCode}  ·  ${item.title}"
         else -> listOfNotNull(item.year.takeIf { it > 0 }?.toString(), item.contentRating).joinToString("  ·  ")
@@ -510,7 +510,7 @@ fun HomeScreen(
         val playable = item.type == "episode" || item.type == "movie"
         val opts = buildList<Pair<String, () -> Unit>> {
             if (playable) {
-                add((if (item.viewOffset > 0) "Resume" else "Play") to { menu = null; onPlay(item) })
+                add((if (item.resumable) "Resume" else "Play") to { menu = null; onPlay(item) })
                 add("Details" to { menu = null; onDetail(item.showKey) })
             } else {
                 add("Open" to { menu = null; onDetail(item.showKey) })
