@@ -461,6 +461,25 @@ class PlexApi(private val prefs: Prefs) {
 
     private val discoverHost = "https://discover.provider.plex.tv"
 
+    /**
+     * Plex's own trailers for a title (discover provider, HLS hosted by Plex), main trailer first. The user token goes in
+     * the URL query of the Plex URL only, so ExoPlayer doesn't forward it on the redirect to the video host.
+     */
+    suspend fun providerTrailers(discoverKey: String): List<String> = try {
+        val arr = json("$discoverHost/library/metadata/$discoverKey/extras", token).optJSONObject("MediaContainer")?.optJSONArray("Metadata")
+        val out = mutableListOf<String>()
+        if (arr != null) for (i in 0 until arr.length()) {
+            val e = arr.getJSONObject(i)
+            if (e.optString("subtype") != "trailer") continue
+            val key = e.optJSONArray("Media")?.optJSONObject(0)?.optJSONArray("Part")?.optJSONObject(0)?.optString("key")
+            if (key.isNullOrEmpty() || !key.startsWith("/")) continue
+            out += "$discoverHost$key${if (key.contains("?")) "&" else "?"}X-Plex-Token=${enc(token)}"
+        }
+        out
+    } catch (e: Exception) {
+        emptyList()
+    }
+
     suspend fun watchlist(): List<Item> = try {
         json("$discoverHost/library/sections/watchlist/all?includeGuids=1&sort=watchlistedAt:desc&X-Plex-Container-Start=0&X-Plex-Container-Size=60", token)
             .optJSONObject("MediaContainer")?.metas() ?: emptyList()

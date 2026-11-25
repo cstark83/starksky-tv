@@ -33,7 +33,7 @@ Direct link to the newest build:
 
 - **Search** (top bar): type with the on-screen keyboard (press OK on the box) or tap **Speak** to use the remote's mic. Searches every movie and show library.
 - **Mark watched / unwatched** is on every title page (movie, whole show, season, each episode) and on Continue Watching / Next Up items on Home. It is written to Plex, so it syncs everywhere. Home re-syncs with Plex every 90 seconds; Settings has **Sync from Plex now**.
-- **Trailer backup:** titles with no Plex trailer fall back to TMDB, played in the YouTube app. Needs a free TMDB key: put it on the empty line in `app/src/main/assets/tmdb_key.txt`. (IMDb has no public trailer feed, so Plex's IMDb ids are used to find the title on TMDB.)
+- **Trailers** always play in the app's own player, never in another app. Order (about 8 s each): Plex extras on the server, Plex's own trailer for the title (HLS from Plex), then the TMDB trailer from YouTube, resolved in the app with NewPipeExtractor (up to 1080p, links cached 4 h). If none works: "Trailer isn't available" with Retry. The YouTube step needs a free TMDB key (repo secret `TMDB_KEY` or `app/src/main/assets/tmdb_key.txt`). Every attempt goes to the playback log.
 - **Opening:** Settings → "Opening plays" switches between every launch and first launch each day.
 - **Resume rewind:** Settings → "Resume rewind" (15 s / 30 s / 45 s / 1 minute, default 1 minute, same for every profile). Resuming starts that much before the saved Plex spot; Start over, fresh plays and the next episode start at 0. Plex keeps the old resume point until playback passes it again (or you seek), so stopping early never moves it back.
 

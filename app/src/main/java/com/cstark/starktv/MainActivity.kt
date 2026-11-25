@@ -35,6 +35,8 @@ sealed class Screen {
 
     /** Plays a library item (key) from [offset] ms, or a direct [url] (trailers). */
     data class Play(val key: String, val offset: Long = 0L, val url: String? = null) : Screen()
+    /** Trailer for a title: Plex extras, Plex's own trailer, then YouTube via TMDB, all in the app (Trailers.kt). */
+    data class Trailer(val req: TrailerReq) : Screen()
 }
 
 /** Lets the activity ask the Compose tree to open Search (remote's search key). */
@@ -187,9 +189,11 @@ fun App(api: PlexApi, prefs: Prefs, skipIntro: Boolean = false) {
             DetailScreen(
                 api, s.key, refresh,
                 onPlay = { item, resume -> stack.add(Screen.Play(item.ratingKey, if (resume && item.resumable) item.viewOffset else 0L)) },
-                onTrailer = { t -> stack.add(Screen.Play(key = "", url = api.media(t.partKey))) },
+                onTrailer = { t -> stack.add(Screen.Trailer(t)) },
             )
         }
+
+        is Screen.Trailer -> key(s) { TrailerScreen(api, s.req) }
 
         is Screen.Play -> key(s) {
             PlayerScreen(

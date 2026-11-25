@@ -804,7 +804,7 @@ fun SettingsScreen(
         LaunchedEffect(Unit) { ov.ensure() }
         Text("Requests (Overseerr): ${ov.status}", fontSize = 14.sp, color = Pal.Dim)
         Text(
-            if (Tmdb.key(ctx).isNotBlank()) "Trailer backup (TMDB): on" else "Trailer backup (TMDB): off — add a key to tmdb_key.txt",
+            if (Tmdb.key(ctx).isNotBlank()) "YouTube trailers (TMDB): on" else "YouTube trailers (TMDB): off — add a key to tmdb_key.txt",
             fontSize = 14.sp,
             color = Pal.Dim,
         )
@@ -827,14 +827,13 @@ fun DetailScreen(
     key: String,
     refresh: Int,
     onPlay: (Item, Boolean) -> Unit,
-    onTrailer: (Trailer) -> Unit,
+    onTrailer: (TrailerReq) -> Unit,
 ) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     // Resume rewind (Settings), so the Resume label shows where playback will really start
     val rewindS = remember { Prefs(ctx).resumeRewind }
     var reload by remember { mutableIntStateOf(0) }
-    var backupTrailer by remember { mutableStateOf<String?>(null) }
     var wlKeys by remember { mutableStateOf<Set<String>>(emptySet()) }
     var data by remember { mutableStateOf<DetailData?>(null) }
     var err by remember { mutableStateOf<String?>(null) }
@@ -865,7 +864,6 @@ fun DetailScreen(
         detailList.scrollToItem(0)
     }
     LaunchedEffect(d.item.ratingKey) {
-        backupTrailer = if (d.trailers.isEmpty()) Tmdb.trailerYoutubeId(ctx, d) else null
         wlKeys = api.watchlist().map { it.ratingKey }.toSet()
     }
     fun mark(ratingKey: String, watched: Boolean) {
@@ -968,10 +966,11 @@ fun DetailScreen(
                                 ) { onPlay(target, true) }
                                 if (resume) Chip("Start over") { onPlay(target, false) }
                             }
-                            if (d.trailers.isNotEmpty()) {
-                                Chip("Trailer") { onTrailer(d.trailers.first()) }
-                            } else if (backupTrailer != null) {
-                                Chip("Trailer (YouTube)") { openYoutube(ctx, backupTrailer!!) }
+                            // Trailer: always in the app's own player (Plex extras -> Plex trailer -> YouTube via TMDB)
+                            if (d.trailers.isNotEmpty() || dkey != null || d.tmdbId != null || d.imdbId != null) {
+                                Chip("Trailer") {
+                                    onTrailer(TrailerReq(top.title, top.year, top.type, d.trailers.map { it.partKey }, dkey, d.tmdbId, d.imdbId))
+                                }
                             }
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {

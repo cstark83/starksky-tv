@@ -10,6 +10,8 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
+        // NewPipeExtractor (in-app YouTube trailer streams) and its nanojson dependency
+        maven("https://jitpack.io")
     }
 }
 rootProject.name = "StarkTV"

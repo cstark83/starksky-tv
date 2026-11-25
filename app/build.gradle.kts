@@ -33,6 +33,8 @@ android {
         }
     }
     compileOptions {
+        // NewPipeExtractor uses java.nio/java.time APIs newer than minSdk 24
+        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
@@ -54,6 +56,8 @@ dependencies {
     implementation("androidx.media3:media3-common:1.5.0")
     implementation("androidx.media3:media3-datasource:1.5.0")
     implementation("androidx.media3:media3-exoplayer:1.5.0")
+    implementation("androidx.media3:media3-exoplayer-hls:1.5.0")
+    implementation("androidx.media3:media3-exoplayer-dash:1.5.0")
     implementation("androidx.media3:media3-ui:1.5.0")
     implementation("androidx.media3:media3-session:1.5.0")
 
@@ -63,4 +67,8 @@ dependencies {
     implementation("io.coil-kt:coil-gif:2.7.0")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+
+    // Trailers: YouTube stream URLs resolved in the app (same version as the NewPipe app)
+    implementation("com.github.TeamNewPipe:NewPipeExtractor:v0.27.1")
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs_nio:2.1.5")
 }
