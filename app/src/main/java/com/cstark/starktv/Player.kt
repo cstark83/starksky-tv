@@ -108,6 +108,11 @@ fun PlayerScreen(
     var countdownDone by remember { mutableStateOf(false) }
     var lastSeekAt by remember { mutableLongStateOf(0L) }
     var scrobbled by remember { mutableStateOf(false) }
+    // Resume rewind: a resume starts [prefs.resumeRewind] s before the saved Plex position. Until playback passes that
+    // saved position again (or you seek), no progress is sent to Plex, so Plex keeps the old resume point and stopping
+    // early doesn't move it back by the rewind every time. 0 = not holding (normal saving).
+    val rs = remember { object { var holdUntil = 0L } }
+    fun saveAllowed(pos: Long) = rs.holdUntil <= 0L || pos >= rs.holdUntil
 
     // Sleep timer (0 = off) and the hold-OK menu.
     var sleepEndAt by remember { mutableLongStateOf(0L) }
@@ -143,8 +148,10 @@ fun PlayerScreen(
                 val dur = i.item.duration
                 val done = dur > 0 && pos > dur * 0.9
                 val already = scrobbled
+                val save = saveAllowed(pos)
+                if (!save) plog("position not saved: still before the saved resume point ${fmtMs(rs.holdUntil)}", pos)
                 CoroutineScope(Dispatchers.IO).launch {
-                    api.timeline(i.item, "stopped", pos)
+                    if (save) api.timeline(i.item, "stopped", pos)
                     if (done && !already) api.scrobble(i.item.ratingKey)
                 }
             }
@@ -173,8 +180,10 @@ fun PlayerScreen(
                 val dur = i?.item?.duration ?: 0L
                 val done = dur > 0 && pos > dur * 0.9 && !scrobbled
                 if (i != null) {
+                    val save = saveAllowed(pos)
+                    if (!save) plog("position not saved: still before the saved resume point ${fmtMs(rs.holdUntil)}", pos)
                     CoroutineScope(Dispatchers.IO).launch {
-                        api.timeline(i.item, "stopped", pos)
+                        if (save) api.timeline(i.item, "stopped", pos)
                         if (done) api.scrobble(i.item.ratingKey)
                     }
                 }
@@ -238,6 +247,11 @@ fun PlayerScreen(
             override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int) {
                 if (reason == Player.DISCONTINUITY_REASON_SEEK || reason == Player.DISCONTINUITY_REASON_SEEK_ADJUSTMENT) {
                     lastSeekAt = System.currentTimeMillis()
+                }
+                // You moved on purpose (rewind/forward, scrub, Skip Intro): from here the real position is saved again.
+                if (reason == Player.DISCONTINUITY_REASON_SEEK && rs.holdUntil > 0L) {
+                    plog("seek during resume rewind: progress saving to Plex on again", newPosition.positionMs)
+                    rs.holdUntil = 0L
                 }
             }
 
@@ -317,8 +331,15 @@ fun PlayerScreen(
                     .build(),
             )
             val mi = MediaItem.Builder().setUri(url).setSubtitleConfigurations(subs).build()
-            player.setMediaItem(mi, req.offset)
-            plog("start at ${fmtMs(req.offset)}", req.offset)
+            // Resume rewind: only a library item resumed from a saved position (offset > 0). Fresh plays, Start over,
+            // the next-episode auto-advance (all offset 0) and trailers (url) start exactly where asked.
+            val start = if (req.url == null && req.offset > 0L) resumeStartMs(req.offset, prefs.resumeRewind) else req.offset
+            if (req.url == null && req.offset > 0L) {
+                rs.holdUntil = req.offset
+                plog("resume: saved offset ${fmtMs(req.offset)}, rewind ${prefs.resumeRewind} s, start at ${fmtMs(start)}", start)
+            }
+            player.setMediaItem(mi, start)
+            plog("start at ${fmtMs(start)}", start)
             player.prepare()
             player.playWhenReady = true
             if (session == null) {
@@ -337,7 +358,11 @@ fun PlayerScreen(
             delay(500)
             posMs = player.currentPosition
             tick++
-            if (tick % 20 == 1 && player.isPlaying) api.timeline(i.item, "playing", posMs)
+            if (rs.holdUntil > 0L && posMs >= rs.holdUntil) {
+                plog("passed the saved resume point ${fmtMs(rs.holdUntil)}: progress saving to Plex on again", posMs)
+                rs.holdUntil = 0L
+            }
+            if (tick % 20 == 1 && player.isPlaying && saveAllowed(posMs)) api.timeline(i.item, "playing", posMs)
             // Credits reached by playing (not while you're seeking around): start the countdown once.
             val dur = player.duration.takeIf { it != C.TIME_UNSET && it > 0 } ?: i.item.duration
             val at = if (i.creditsStart > 0) i.creditsStart else dur - NO_CREDITS_LEAD_MS
@@ -381,7 +406,7 @@ fun PlayerScreen(
         val i = info
         val pos = player.currentPosition
         plog("sleep timer ended: paused, going Home", pos)
-        if (i != null) api.timeline(i.item, "stopped", pos)
+        if (i != null && saveAllowed(pos)) api.timeline(i.item, "stopped", pos)
         player.volume = 1f
         sleepEndAt = 0L
         onHome()

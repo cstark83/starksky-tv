@@ -4,6 +4,12 @@ import android.content.Context
 import androidx.compose.runtime.mutableLongStateOf
 import java.util.UUID
 
+/** "Resume rewind" choices in seconds (Settings); resuming starts this much before the saved Plex position. */
+val RESUME_REWIND_CHOICES = listOf(15, 30, 45, 60)
+fun rewindLabel(s: Int) = if (s == 60) "1 minute" else "$s seconds"
+/** Where a resume really starts: savedMs minus the rewind, never below 0. A fresh play (savedMs 0) stays at 0. */
+fun resumeStartMs(savedMs: Long, rewindS: Int): Long = if (savedMs <= 0L) 0L else (savedMs - rewindS * 1000L).coerceAtLeast(0L)
+
 class Prefs(ctx: Context) {
     private val sp = ctx.getSharedPreferences("stark", Context.MODE_PRIVATE)
 
@@ -51,6 +57,11 @@ class Prefs(ctx: Context) {
     var introDaily: Boolean
         get() = sp.getBoolean("introDaily", false)
         set(v) { sp.edit().putBoolean("introDaily", v).apply() }
+
+    /** Resume rewind in seconds (15/30/45/60, default 60). Device-wide: same for every profile, kept on sign-out. */
+    var resumeRewind: Int
+        get() = sp.getInt("resumeRewind", 60).takeIf { it in RESUME_REWIND_CHOICES } ?: 60
+        set(v) { sp.edit().putInt("resumeRewind", v).apply() }
 
     var lastIntroDay: Long
         get() = sp.getLong("introDay", -1L)
@@ -134,8 +145,9 @@ class Prefs(ctx: Context) {
         val cel = celsius
         val daily = introDaily
         val build = lastBuild
+        val rewind = resumeRewind
         lastSyncState.longValue = 0L
         restrictedState.value = false
-        sp.edit().clear().putString("cid", cid).putInt("intro", style).putBoolean("subs", subs).putBoolean("celsius", cel).putBoolean("introDaily", daily).putInt("lastbuild", build).apply()
+        sp.edit().clear().putString("cid", cid).putInt("intro", style).putBoolean("subs", subs).putBoolean("celsius", cel).putBoolean("introDaily", daily).putInt("lastbuild", build).putInt("resumeRewind", rewind).apply()
     }
 }

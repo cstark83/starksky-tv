@@ -728,6 +728,7 @@ fun SettingsScreen(
     var introStyle by remember { mutableIntStateOf(prefs.introStyle) }
     var celsius by remember { mutableStateOf(prefs.celsius) }
     var daily by remember { mutableStateOf(prefs.introDaily) }
+    var rewind by remember { mutableIntStateOf(prefs.resumeRewind) }
     val ctx = LocalContext.current
     Column(Modifier.verticalScroll(rememberScrollState()).padding(horizontal = tvDims().side, vertical = 32.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Text("Profile: ${prefs.userName ?: "—"}", fontSize = 18.sp)
@@ -735,6 +736,10 @@ fun SettingsScreen(
         Chip("Subtitles on by default: ${if (subs) "On" else "Off"}") {
             subs = !subs
             prefs.subsDefault = subs
+        }
+        Chip("Resume rewind: ${rewindLabel(rewind)}") {
+            rewind = RESUME_REWIND_CHOICES[(RESUME_REWIND_CHOICES.indexOf(rewind) + 1) % RESUME_REWIND_CHOICES.size]
+            prefs.resumeRewind = rewind
         }
         Chip("Temperature: ${if (celsius) "°C" else "°F"}") {
             celsius = !celsius
@@ -823,6 +828,8 @@ fun DetailScreen(
 ) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
+    // Resume rewind (Settings), so the Resume label shows where playback will really start
+    val rewindS = remember { Prefs(ctx).resumeRewind }
     var reload by remember { mutableIntStateOf(0) }
     var backupTrailer by remember { mutableStateOf<String?>(null) }
     var wlKeys by remember { mutableStateOf<Set<String>>(emptySet()) }
@@ -952,7 +959,7 @@ fun DetailScreen(
                             if (target != null) {
                                 val code = if (isShow) " ${target.epCode}" else ""
                                 Chip(
-                                    if (resume) "▶ Resume$code  ${fmtTime(target.viewOffset)}" else "▶ Play$code",
+                                    if (resume) "▶ Resume$code  ${fmtTime(resumeStartMs(target.viewOffset, rewindS))}" else "▶ Play$code",
                                     fr = playFocus,
                                     onLongPress = { titleMenu() },
                                 ) { onPlay(target, true) }
