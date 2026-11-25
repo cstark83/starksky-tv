@@ -13,6 +13,7 @@ import java.util.Locale
 class StarskyApp : Application() {
     override fun onCreate() {
         super.onCreate()
+        initTrailerExtractor() // NewPipe ready before the first trailer press (background thread)
         val previous = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, e ->
             try {
