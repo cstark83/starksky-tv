@@ -35,6 +35,7 @@ import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.input.key.Key
@@ -293,8 +294,15 @@ class HoldMenuState {
     private var returnTo: FocusRequester? = null
     var restore by mutableStateOf(0)
         private set
+    /** Bumped on every open, so a menu opened from another menu's option (a confirmation) starts fresh. */
+    var serial by mutableStateOf(0)
+        private set
     fun open(title: String, options: List<Pair<String, () -> Unit>>, returnTo: FocusRequester?) {
-        this.title = title; this.returnTo = returnTo; this.options = options
+        this.title = title; this.returnTo = returnTo; this.options = options; serial++
+    }
+    /** "Mark all 10 episodes of Season 2 as watched?" No / Yes, focus on No. */
+    fun confirm(question: String, returnTo: FocusRequester?, onYes: () -> Unit) {
+        open(question, listOf("No" to {}, "Yes" to onYes), returnTo)
     }
     fun close() { options = null; restore++ }
     fun refocus() { returnTo?.let { r -> runCatching { r.requestFocus() } } }
@@ -306,9 +314,12 @@ fun rememberHoldMenu() = remember { HoldMenuState() }
 /** Draws the menu of [s] when it is open; place it last in a full-screen Box so it covers the screen. */
 @Composable
 fun HoldMenuHost(s: HoldMenuState) {
-    LaunchedEffect(s.restore) { if (s.restore > 0) { delay(50); s.refocus() } }
+    // back to the held card/button, unless the option opened another menu (a confirmation) in the meantime
+    LaunchedEffect(s.restore) { if (s.restore > 0) { delay(50); if (s.options == null) s.refocus() } }
     val opts = s.options ?: return
-    HoldMenu(s.title, opts.map { (label, act) -> label to { s.close(); act() } }, onDismiss = { s.close() }, selected = 0)
+    key(s.serial) {
+        HoldMenu(s.title, opts.map { (label, act) -> label to { s.close(); act() } }, onDismiss = { s.close() }, selected = 0)
+    }
 }
 
 /**

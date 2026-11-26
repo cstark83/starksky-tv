@@ -14,6 +14,7 @@ class StarskyApp : Application() {
     override fun onCreate() {
         super.onCreate()
         initTrailerExtractor() // NewPipe ready before the first trailer press (background thread)
+        MarkQueue.init(this) // watched marks still waiting from before (crash, update, TV off) are sent again
         val previous = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, e ->
             try {

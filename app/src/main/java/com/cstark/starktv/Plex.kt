@@ -408,24 +408,23 @@ class PlexApi(private val prefs: Prefs) {
         }
     }
 
-    suspend fun scrobble(ratingKey: String) {
-        withContext(Dispatchers.IO) {
-            try {
-                exec(req("$base/:/scrobble?key=$ratingKey&identifier=com.plexapp.plugins.library", srvToken))
-            } catch (_: Exception) {
-            }
-        }
-    }
+    /** Automatic mark from the player (end, countdown, past 90%): queued, retried until Plex takes it (Watched.kt). */
+    suspend fun scrobble(ratingKey: String, label: String, why: String): Boolean =
+        MarkQueue.mark(this, prefs, ratingKey, true, label, why, manual = false)
 
-    /** Marks a movie, episode, season or whole show watched/unwatched on the Plex server. */
-    suspend fun setWatched(ratingKey: String, watched: Boolean): Boolean = withContext(Dispatchers.IO) {
-        try {
-            val action = if (watched) "scrobble" else "unscrobble"
-            exec(req("$base/:/$action?key=$ratingKey&identifier=com.plexapp.plugins.library", srvToken))
-            true
-        } catch (_: Exception) {
-            false
-        }
+    /**
+     * Marks a movie, episode, season or whole show watched/unwatched on the Plex server with this profile's server token
+     * (scrobble / unscrobble; unscrobble also clears the resume point). Queued and retried until Plex takes it, and reported
+     * to Tower's watch ledger (Watched.kt). True = Plex took it now.
+     */
+    suspend fun setWatched(ratingKey: String, watched: Boolean, label: String = ratingKey, why: String = "by hand"): Boolean =
+        MarkQueue.mark(this, prefs, ratingKey, watched, label, why, manual = true)
+
+    /** Episode count of a show or season (for "Mark all N episodes…?"); 0 = unknown. */
+    suspend fun leafCount(ratingKey: String): Int = try {
+        srv("/library/metadata/$ratingKey").optJSONArray("Metadata")?.optJSONObject(0)?.optInt("leafCount") ?: 0
+    } catch (_: Exception) {
+        0
     }
 
     /** Asks Plex to drop an item from Continue Watching without marking it watched. */

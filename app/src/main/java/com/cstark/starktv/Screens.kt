@@ -459,6 +459,9 @@ fun MainScreen(
         }
     }
     LaunchedEffect(home.lastSync) { if (home.lastSync > 0) prefs.lastSync = home.lastSync }
+    // a watched/unwatched mark reached Plex (hand mark, player, or a queued retry): Continue Watching, Next Up and
+    // Recently Watched reload so marked items leave or appear
+    LaunchedEffect(MarkQueue.version) { if (MarkQueue.version > 0) loadHome(api, home) }
     // "Updated to build N": shown ~4 s after an update (not on the very first launch), then the new number is saved
     var updatedTo by remember { mutableIntStateOf(0) }
     LaunchedEffect(Unit) {
@@ -550,6 +553,7 @@ fun LibraryScreen(api: PlexApi, section: Section, refresh: Int, onPlay: (Item) -
     val memKey = "${section.key}|$sort"
     var items by remember(section.key, sort) { mutableStateOf<List<Item>?>(null) }
     var err by remember { mutableStateOf<String?>(null) }
+    val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     val gridState = remember(section.key, sort) {
         (if (restoring) NavMemory.libGrid[memKey] else null) ?: LazyGridState().also { NavMemory.libGrid[memKey] = it }
@@ -562,11 +566,20 @@ fun LibraryScreen(api: PlexApi, section: Section, refresh: Int, onPlay: (Item) -
     var wlKeys by remember(section.key) { mutableStateOf<Set<String>>(emptySet()) }
     LaunchedEffect(section.key) { wlKeys = api.watchlist().map { it.ratingKey }.toSet() }
     fun setSeen(item: Item, watched: Boolean) {
+        // update the card in place at once (no reload), so the grid keeps its scroll position and focus; the mark queue
+        // (Watched.kt) gets it to Plex, retrying if needed
+        items = items?.map { if (it.ratingKey == item.ratingKey) it.copy(viewCount = if (watched) maxOf(1, it.viewCount) else 0, viewOffset = 0L) else it }
         scope.launch {
-            if (api.setWatched(item.ratingKey, watched)) {
-                // update the card in place (no reload), so the grid keeps its scroll position and focus
-                items = items?.map { if (it.ratingKey == item.ratingKey) it.copy(viewCount = if (watched) 1 else 0, viewOffset = 0L) else it }
-            }
+            val what = if (item.type == "episode") "${item.label} ${item.epCode}" else item.label
+            markToast(ctx, api.setWatched(item.ratingKey, watched, what), what, watched)
+        }
+    }
+    /** Shows (and seasons): asks first, with the episode count, focus on No. */
+    fun confirmSeen(item: Item, watched: Boolean) {
+        scope.launch {
+            val n = api.leafCount(item.ratingKey)
+            val all = if (n > 0) "all ${plural(n, "episode")} of" else "every episode of"
+            menu.confirm("Mark $all ${item.label} as ${if (watched) "watched" else "unwatched"}?", targetFr) { setSeen(item, watched) }
         }
     }
     fun openMenu(item: Item) {
@@ -579,8 +592,12 @@ fun LibraryScreen(api: PlexApi, section: Section, refresh: Int, onPlay: (Item) -
             } else {
                 add("Open" to { onOpen(item) })
             }
-            add((if (playable) "Mark watched" else "Mark show watched") to { setSeen(item, true) })
-            add((if (playable) "Mark unwatched" else "Mark show unwatched") to { setSeen(item, false) })
+            if (playable) {
+                add((if (item.watchedDone) "Mark unwatched" else "Mark watched") to { setSeen(item, !item.watchedDone) })
+            } else {
+                add("Mark show watched" to { confirmSeen(item, true) })
+                add("Mark show unwatched" to { confirmSeen(item, false) })
+            }
             if (dkey != null) {
                 val on = dkey in wlKeys
                 add((if (on) "Remove from Watchlist" else "Add to Watchlist") to {
@@ -884,11 +901,29 @@ fun DetailScreen(
     LaunchedEffect(d.item.ratingKey) {
         wlKeys = api.watchlist().map { it.ratingKey }.toSet()
     }
-    fun mark(ratingKey: String, watched: Boolean) {
+    /**
+     * Hand mark: the page shows it at once (episodes in [covers] and the title itself), then Plex gets it through the mark
+     * queue (Watched.kt: retried until it works, ledger told), a short message confirms, and the page reloads from Plex.
+     * Unwatched also clears the resume point (Plex's unscrobble does that).
+     */
+    fun mark(ratingKey: String, watched: Boolean, what: String, covers: (Item) -> Boolean) {
+        fun upd(x: Item) = x.copy(viewCount = if (watched) maxOf(1, x.viewCount) else 0, viewOffset = 0L)
+        data = data?.let { dd ->
+            dd.copy(
+                item = if (dd.item.ratingKey == ratingKey) upd(dd.item) else dd.item,
+                episodes = dd.episodes.map { if (covers(it)) upd(it) else it },
+            )
+        }
         scope.launch {
-            api.setWatched(ratingKey, watched)
+            val ok = api.setWatched(ratingKey, watched, what)
+            markToast(ctx, ok, what, watched)
             reload++
         }
+    }
+    /** Season or show: asks first ("Mark all 10 episodes of Season 2 as watched?" No / Yes, focus on No). */
+    fun confirmMark(ratingKey: String, watched: Boolean, what: String, count: Int, fr: FocusRequester?, covers: (Item) -> Boolean) {
+        val n = if (count > 0) "all ${plural(count, "episode")} of" else "every episode of"
+        menu.confirm("Mark $n $what as ${if (watched) "watched" else "unwatched"}?", fr) { mark(ratingKey, watched, what, covers) }
     }
 
     val top = d.item
@@ -910,11 +945,14 @@ fun DetailScreen(
             add((if (resume) "Resume$code" else "Play$code") to { onPlay(t, true) })
             if (resume) add("Start over" to { onPlay(t, false) })
             if (isShow) {
-                add((if (t.watchedDone) "Mark${code} unwatched" else "Mark${code} watched") to { mark(t.ratingKey, !t.watchedDone) })
-                add("Mark show watched" to { mark(top.ratingKey, true) })
-                add("Mark show unwatched" to { mark(top.ratingKey, false) })
+                add((if (t.watchedDone) "Mark${code} unwatched" else "Mark${code} watched") to {
+                    mark(t.ratingKey, !t.watchedDone, "${top.title}$code") { it.ratingKey == t.ratingKey }
+                })
+                val n = d.episodes.size
+                if (!d.episodes.all { it.watchedDone }) add("Mark show watched" to { confirmMark(top.ratingKey, true, top.title, n, playFocus) { true } })
+                if (d.episodes.any { it.viewCount > 0 || it.viewOffset > 0 }) add("Mark show unwatched" to { confirmMark(top.ratingKey, false, top.title, n, playFocus) { true } })
             } else {
-                add((if (top.watchedDone) "Mark unwatched" else "Mark watched") to { mark(top.ratingKey, !top.watchedDone) })
+                add((if (top.watchedDone) "Mark unwatched" else "Mark watched") to { mark(top.ratingKey, !top.watchedDone, top.title) { false } })
             }
             if (dkey != null) add((if (dkey in wlKeys) "Remove from Watchlist" else "Add to Watchlist") to { toggleWatchlist() })
         }
@@ -926,8 +964,9 @@ fun DetailScreen(
         val name = if (sn == 0) "Specials" else "Season $sn"
         val opts = buildList<Pair<String, () -> Unit>> {
             nextUp(inSeason)?.let { e -> add((if (e.resumable) "Resume ${e.epCode}" else "Play ${e.epCode}") to { onPlay(e, true) }) }
-            add("Mark $name watched" to { mark(sk, true) })
-            add("Mark $name unwatched" to { mark(sk, false) })
+            val what = "${top.title} $name"
+            if (!inSeason.all { it.watchedDone }) add("Mark season watched" to { confirmMark(sk, true, what, inSeason.size, fr) { it.parentIndex == sn } })
+            if (inSeason.any { it.viewCount > 0 || it.viewOffset > 0 }) add("Mark season unwatched" to { confirmMark(sk, false, what, inSeason.size, fr) { it.parentIndex == sn } })
         }
         menu.open("${top.title} · $name", opts, fr)
     }
@@ -935,7 +974,9 @@ fun DetailScreen(
         val opts = buildList<Pair<String, () -> Unit>> {
             add((if (ep.resumable) "Resume" else "Play") to { onPlay(ep, true) })
             if (ep.resumable) add("Start over" to { onPlay(ep, false) })
-            add((if (ep.watchedDone) "Mark unwatched" else "Mark watched") to { mark(ep.ratingKey, !ep.watchedDone) })
+            add((if (ep.watchedDone) "Mark unwatched" else "Mark watched") to {
+                mark(ep.ratingKey, !ep.watchedDone, "${top.title} ${ep.epCode}") { it.ratingKey == ep.ratingKey }
+            })
             if (dkey != null) add((if (dkey in wlKeys) "Remove show from Watchlist" else "Add show to Watchlist") to { toggleWatchlist() })
         }
         menu.open("${ep.epCode} · ${ep.title}", opts, fr)
@@ -994,10 +1035,13 @@ fun DetailScreen(
                         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             if (isShow) {
                                 val allWatched = d.episodes.isNotEmpty() && d.episodes.all { it.watchedDone }
-                                Chip(if (allWatched) "Mark show unwatched" else "Mark show watched") { mark(top.ratingKey, !allWatched) }
+                                val showFr = remember { FocusRequester() }
+                                Chip(if (allWatched) "Mark show unwatched" else "Mark show watched", fr = showFr) {
+                                    confirmMark(top.ratingKey, !allWatched, top.title, d.episodes.size, showFr) { true }
+                                }
                             } else {
                                 val seen = top.watchedDone
-                                Chip(if (seen) "Mark unwatched" else "Mark watched") { mark(top.ratingKey, !seen) }
+                                Chip(if (seen) "Mark unwatched" else "Mark watched") { mark(top.ratingKey, !seen, top.title) { false } }
                             }
                             if (dkey != null) {
                                 Chip(if (dkey in wlKeys) "Remove from Watchlist" else "Add to Watchlist") { toggleWatchlist() }
@@ -1021,14 +1065,21 @@ fun DetailScreen(
                             val seasonKey = inSeason.firstOrNull()?.parentRatingKey
                             val seasonSeen = inSeason.isNotEmpty() && inSeason.all { it.watchedDone }
                             if (seasonKey != null) {
-                                Chip(if (seasonSeen) "Mark season unwatched" else "Mark season watched") { mark(seasonKey, !seasonSeen) }
+                                val sfr = remember { FocusRequester() }
+                                val sname = if (season == 0) "Specials" else "Season $season"
+                                val sn = season
+                                Chip(if (seasonSeen) "Mark season unwatched" else "Mark season watched", fr = sfr) {
+                                    confirmMark(seasonKey, !seasonSeen, "${top.title} $sname", inSeason.size, sfr) { it.parentIndex == sn }
+                                }
                             }
                         }
                     }
                 }
                 items(d.episodes.filter { it.parentIndex == season }, key = { it.ratingKey }) { ep ->
                     val fr = remember { FocusRequester() }
-                    EpisodeRow(api, ep, fr, onClick = { onPlay(ep, true) }, onLongPress = { episodeMenu(ep, fr) }, onToggle = { mark(ep.ratingKey, !ep.watchedDone) })
+                    EpisodeRow(api, ep, fr, onClick = { onPlay(ep, true) }, onLongPress = { episodeMenu(ep, fr) }, onToggle = {
+                        mark(ep.ratingKey, !ep.watchedDone, "${top.title} ${ep.epCode}") { it.ratingKey == ep.ratingKey }
+                    })
                 }
             }
         }

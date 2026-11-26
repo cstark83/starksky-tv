@@ -35,6 +35,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -357,8 +358,11 @@ fun HomeScreen(
     if (rows.isEmpty()) { Centered("Nothing here yet — add some media to Plex."); return }
 
     val first = remember { FocusRequester() }
+    val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     var menu by remember { mutableStateOf<Pair<Item, Boolean>?>(null) }
+    // "Mark all N episodes of … as watched?" (No / Yes) for shows and seasons
+    var confirm by remember { mutableStateOf<Pair<String, () -> Unit>?>(null) }
     // Watchlist titles: open the library page if you already have it, otherwise the request page
     fun openExternal(item: Item) {
         val id = item.tmdbId?.toIntOrNull() ?: return
@@ -432,7 +436,8 @@ fun HomeScreen(
                     onDetail,
                     onMarkWatched = {
                         scope.launch {
-                            api.setWatched(sel.ratingKey, true)
+                            val what = if (sel.type == "episode") "${sel.label} ${sel.epCode}" else sel.label
+                            markToast(ctx, api.setWatched(sel.ratingKey, true, what), what, true)
                             loadHome(api, home)
                         }
                     },
@@ -521,12 +526,35 @@ fun HomeScreen(
             } else {
                 add("Open" to { menu = null; onDetail(item.showKey) })
             }
-            add("Mark watched" to { menu = null; scope.launch { api.setWatched(item.ratingKey, true); loadHome(api, home) }; Unit })
-            add("Mark unwatched" to { menu = null; scope.launch { api.setWatched(item.ratingKey, false); loadHome(api, home) }; Unit })
+            val what = if (item.type == "episode") "${item.label} ${item.epCode}" else item.label
+            fun seen(w: Boolean) {
+                scope.launch { markToast(ctx, api.setWatched(item.ratingKey, w, what), what, w); loadHome(api, home) }
+            }
+            if (playable) {
+                // only the one that applies (Continue Watching / Next Up items: "Mark watched")
+                add((if (item.watchedDone) "Mark unwatched" else "Mark watched") to { menu = null; seen(!item.watchedDone) })
+            } else {
+                // a show or season: asks first, with the episode count, focus on No
+                for (w in listOf(true, false)) {
+                    add("Mark ${if (item.type == "season") "season" else "show"} ${if (w) "watched" else "unwatched"}" to {
+                        menu = null
+                        scope.launch {
+                            val n = api.leafCount(item.ratingKey)
+                            val all = if (n > 0) "all ${plural(n, "episode")} of" else "every episode of"
+                            confirm = "Mark $all $what as ${if (w) "watched" else "unwatched"}?" to { seen(w) }
+                        }
+                        Unit
+                    })
+                }
+            }
             if (deck) {
                 add("Remove from Continue Watching" to { menu = null; scope.launch { api.hideFromContinue(item.ratingKey); loadHome(api, home) }; Unit })
             }
         }
         HoldMenu(item.label, opts, onDismiss = { menu = null }, selected = 0)
+    }
+    val c = confirm
+    if (c != null) {
+        key(c) { HoldMenu(c.first, listOf("No" to { confirm = null }, "Yes" to { confirm = null; c.second() }), onDismiss = { confirm = null }, selected = 0) }
     }
 }

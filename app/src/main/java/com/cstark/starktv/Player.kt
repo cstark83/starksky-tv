@@ -138,6 +138,19 @@ fun PlayerScreen(
         PlayLog.add(ctx, "$event | pos ${fmtMs(pos)} / player ${fmtMs(dur)} / plex ${fmtMs(cur?.duration ?: 0L)} | $what")
     }
 
+    // Watched mark (Watched.kt queue: logged with its HTTP status, retried until Plex takes it, even after a restart).
+    // Rule: the end of the file, the next-episode countdown (credits reached), passing 90% while playing, or leaving past 90%
+    // ALWAYS marks it watched, once per playthrough.
+    fun markDone(why: String) {
+        val i = info ?: return
+        if (scrobbled || req.url != null) return
+        scrobbled = true
+        plog("mark watched: $why")
+        val it0 = i.item
+        val label = if (it0.type == "episode") "${it0.label} ${it0.epCode}" else it0.label
+        CoroutineScope(Dispatchers.IO).launch { api.scrobble(it0.ratingKey, label, why) }
+    }
+
     // Tell Plex where we stopped (and mark watched past 90%), then release the session and the player.
     DisposableEffect(Unit) {
         onDispose {
@@ -147,13 +160,12 @@ fun PlayerScreen(
                 val pos = player.currentPosition
                 val dur = i.item.duration
                 val done = dur > 0 && pos > dur * 0.9
-                val already = scrobbled
                 val save = saveAllowed(pos)
                 if (!save) plog("position not saved: still before the saved resume point ${fmtMs(rs.holdUntil)}", pos)
                 CoroutineScope(Dispatchers.IO).launch {
                     if (save) api.timeline(i.item, "stopped", pos)
-                    if (done && !already) api.scrobble(i.item.ratingKey)
                 }
+                if (done) markDone("left the player past 90% (${pos * 100 / dur}%)")
             }
             session?.release()
             session = null
@@ -178,14 +190,14 @@ fun PlayerScreen(
                 val i = info
                 val pos = player.currentPosition
                 val dur = i?.item?.duration ?: 0L
-                val done = dur > 0 && pos > dur * 0.9 && !scrobbled
+                val done = dur > 0 && pos > dur * 0.9
                 if (i != null) {
                     val save = saveAllowed(pos)
                     if (!save) plog("position not saved: still before the saved resume point ${fmtMs(rs.holdUntil)}", pos)
                     CoroutineScope(Dispatchers.IO).launch {
                         if (save) api.timeline(i.item, "stopped", pos)
-                        if (done) api.scrobble(i.item.ratingKey)
                     }
+                    if (done) markDone("app left the screen past 90% (${pos * 100 / dur}%)")
                 }
                 session?.release()
                 session = null
@@ -210,16 +222,14 @@ fun PlayerScreen(
         countdown = null
         countdownDone = false
         // reached the credits: count it as watched even when the credits are longer than the last 10%
-        if (!scrobbled) {
-            scrobbled = true
-            CoroutineScope(Dispatchers.IO).launch { api.scrobble(i.item.ratingKey) }
-        }
+        markDone("next episode ($why)")
         onNext(n)
     }
 
     fun startCountdown(why: String) {
         if (countdownUsed || info?.nextKey == null) return
         plog("countdown start ($why)")
+        markDone("next-episode countdown started ($why)")
         countdownUsed = true
         countdown = NEXT_COUNTDOWN_S
     }
@@ -229,6 +239,7 @@ fun PlayerScreen(
             override fun onPlaybackStateChanged(playbackState: Int) {
                 if (playbackState == Player.STATE_ENDED) {
                     plog("STATE_ENDED (the file really ended)")
+                    markDone("end of the file")
                     val n = info?.nextKey
                     when {
                         n == null -> onExit()
@@ -363,6 +374,11 @@ fun PlayerScreen(
                 rs.holdUntil = 0L
             }
             if (tick % 20 == 1 && player.isPlaying && saveAllowed(posMs)) api.timeline(i.item, "playing", posMs)
+            // passed 90% while really playing (not just landed there by a seek): watched now, not only when leaving
+            val d90 = player.duration.takeIf { it != C.TIME_UNSET && it > 0 } ?: i.item.duration
+            if (!scrobbled && d90 > 0 && posMs > d90 * 0.9 && player.isPlaying && System.currentTimeMillis() - lastSeekAt > 3000) {
+                markDone("passed 90% while playing (${posMs * 100 / d90}%)")
+            }
             // Credits reached by playing (not while you're seeking around): start the countdown once.
             val dur = player.duration.takeIf { it != C.TIME_UNSET && it > 0 } ?: i.item.duration
             val at = if (i.creditsStart > 0) i.creditsStart else dur - NO_CREDITS_LEAD_MS
