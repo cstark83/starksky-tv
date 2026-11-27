@@ -327,6 +327,10 @@ class HomeData {
     var sections by mutableStateOf<List<Section>>(emptyList())
     var rows by mutableStateOf<List<HomeRow>?>(null)
     var error by mutableStateOf<String?>(null)
+    /** Technical reason of the last failed load (shown small on the offline screen). */
+    var errorDetail by mutableStateOf<String?>(null)
+    /** Bumped by the offline screen's Retry: reloads Home without restarting the app. */
+    var retry by mutableIntStateOf(0)
     var tab by mutableIntStateOf(0)
     var selected by mutableStateOf<Item?>(null)
     var selectedDeck by mutableStateOf(false)
@@ -427,9 +431,12 @@ suspend fun loadHome(api: PlexApi, d: HomeData): Boolean {
 
         d.rows = rows
         d.error = null
+        d.errorDetail = null
         d.lastSync = System.currentTimeMillis()
         return true
     } catch (e: Exception) {
+        if (e is kotlinx.coroutines.CancellationException) throw e
+        d.errorDetail = "${e.javaClass.simpleName}: ${e.message?.take(160) ?: "no details"}" + if (api.base.isNotBlank()) " (${api.base})" else ""
         if (d.rows == null) d.error = RETRY_MSG
         return false
     }
@@ -470,7 +477,7 @@ fun MainScreen(
             if (p != null) prefs.restricted = p.kid && !p.admin
         }
     }
-    LaunchedEffect(refresh) {
+    LaunchedEffect(refresh, home.retry) {
         // Plex not reachable on load: "Can't reach Plex, retrying…" and try again (10 s, after 5 tries 30 s) until it works
         var n = 0
         while (!loadHome(api, home) && home.rows == null) delay(retryDelayMs(++n))

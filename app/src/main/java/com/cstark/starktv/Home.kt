@@ -369,7 +369,7 @@ fun HomeScreen(
 ) {
     val rows = home.rows
     if (rows == null) {
-        if (home.error != null) Centered(home.error ?: "") else Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomStart) { SkeletonRows() }
+        if (home.error != null) OfflineScreen(home) else Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomStart) { SkeletonRows() }
         return
     }
     if (rows.isEmpty()) { Centered("Nothing here yet — add some media to Plex."); return }
@@ -576,5 +576,29 @@ fun HomeScreen(
     val c = confirm
     if (c != null) {
         key(c) { HoldMenu(c.first, listOf("No" to { confirm = null }, "Yes" to { confirm = null; c.second() }), onDismiss = { confirm = null }, selected = 0) }
+    }
+}
+
+/** Plex can't be reached on load: a clear message, Retry (reloads Home, no app restart), the technical reason small. */
+@Composable
+fun OfflineScreen(home: HomeData) {
+    val fr = remember { FocusRequester() }
+    var trying by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { focusSoon(fr) }
+    LaunchedEffect(home.errorDetail, home.rows) { trying = false }
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Column(
+            Modifier.width(640.dp).background(Color(0xE6141418), RoundedCornerShape(16.dp)).padding(32.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Text("Can't reach your Plex server", fontSize = 30.sp, fontWeight = FontWeight.Medium)
+            Text(
+                if (trying) "Trying again…" else "Check that Tower is on and the network works. Starsky keeps trying on its own.",
+                fontSize = 16.sp, color = Pal.Dim,
+            )
+            Chip("Retry", fr = fr) { trying = true; home.retry++ }
+            home.errorDetail?.let { Text(it, fontSize = 12.sp, color = Pal.Dim.copy(alpha = 0.7f), maxLines = 3, overflow = TextOverflow.Ellipsis) }
+        }
     }
 }
