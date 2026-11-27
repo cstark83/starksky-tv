@@ -94,7 +94,6 @@ fun PlayerScreen(
     var info by remember { mutableStateOf<PlayInfo?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var posMs by remember { mutableLongStateOf(0L) }
-    var playerView by remember { mutableStateOf<PlayerView?>(null) }
     val introFocus = remember { FocusRequester() }
     // Media3 MediaSession: exists while this player screen is open (playing or paused), so the system (and the Tower
     // auto-updater) can see the playback state. Plain in-process session: no service, no background playback.
@@ -118,7 +117,12 @@ fun PlayerScreen(
     var sleepEndAt by remember { mutableLongStateOf(0L) }
     var sleepLeftMin by remember { mutableIntStateOf(0) }
     var menuOpen by remember { mutableStateOf(false) }
+    // Control bar (PlayerControls.kt): shown 4 s after the last key, always while paused / ended (like the stock bar).
     var controlsVisible by remember { mutableStateOf(false) }
+    var hideAt by remember { mutableLongStateOf(0L) }
+    var barFocused by remember { mutableStateOf(false) }
+    var ctlMenuOpen by remember { mutableStateOf(false) }
+    val playFr = remember { FocusRequester() }
 
     // Track memory: flags read inside the player listener (plain fields, not Compose state).
     val trk = remember { object { var programmatic = false; var userPicked = false; var applied = false } }
@@ -442,7 +446,7 @@ fun PlayerScreen(
         if (!menuOpen) runCatching { rootFocus.requestFocus() }
     }
 
-    fun showControls() { playerView?.showController() } // also restarts the 4 s auto-hide timer
+    fun showControls() { controlsVisible = true; hideAt = System.currentTimeMillis() + 4000 } // (re)starts the 4 s auto-hide
     fun seekBy(ms: Long) {
         val dur = player.duration
         var to = (player.currentPosition + ms).coerceAtLeast(0L)
@@ -458,6 +462,23 @@ fun PlayerScreen(
 
     val i = info
     val showSkip = i != null && i.introStart >= 0 && i.introEnd > i.introStart && posMs >= i.introStart && posMs < i.introEnd
+    // Control bar visibility: always shown while paused or ended, else hidden 4 s after the last key (not while a menu is open).
+    LaunchedEffect(Unit) {
+        while (!released) {
+            delay(200)
+            val st = runCatching { player.playbackState }.getOrDefault(Player.STATE_IDLE)
+            val hold = st == Player.STATE_ENDED || (st != Player.STATE_IDLE && !player.playWhenReady)
+            val now = System.currentTimeMillis()
+            if (hold) {
+                controlsVisible = true; hideAt = now + 4000
+            } else if (controlsVisible && !ctlMenuOpen && !menuOpen && now > hideAt) {
+                val had = barFocused
+                controlsVisible = false
+                if (had) { delay(50); runCatching { rootFocus.requestFocus() } }
+            }
+        }
+    }
+
     // Skip Intro vanishing while focused would leave nothing focused: take focus back.
     LaunchedEffect(showSkip) { if (!showSkip && !menuOpen) runCatching { rootFocus.requestFocus() } }
 
@@ -466,7 +487,8 @@ fun PlayerScreen(
             .fillMaxSize()
             .background(Color.Black)
             .onPreviewKeyEvent { e ->
-                if (menuOpen) return@onPreviewKeyEvent false // the sleep-timer menu handles its own keys
+                if (controlsVisible) hideAt = maxOf(hideAt, System.currentTimeMillis() + 4000) // any key keeps the bar up
+                if (menuOpen || ctlMenuOpen) return@onPreviewKeyEvent false // the sleep-timer / track menus handle their own keys
                 val k = e.key
                 // Next-episode countdown: OK = play now, Back = cancel (and stay; this Back never leaves the player).
                 if (countdown != null) {
@@ -488,7 +510,7 @@ fun PlayerScreen(
                     k == Key.MediaRewind || k == Key.MediaFastForward
                 if (!dpad && !media) return@onPreviewKeyEvent false // Back, volume, etc. untouched
                 // Control bar open with focus in it: let its buttons (CC, settings, seek bar) take the D-pad.
-                if (dpad && playerView?.hasFocus() == true) return@onPreviewKeyEvent false
+                if (dpad && barFocused) return@onPreviewKeyEvent false
                 // OK on Skip Intro presses the chip, not play/pause.
                 val ok = isOkKey(k)
                 if (ok && skipFocused) return@onPreviewKeyEvent false
@@ -523,7 +545,7 @@ fun PlayerScreen(
                             }
                             Key.DirectionUp, Key.DirectionDown -> {
                                 showControls()
-                                playerView?.requestFocus() // into the control bar's buttons
+                                scope.launch { focusSoon(playFr) } // into the control bar, on play/pause
                             }
                         }
                     }
@@ -551,23 +573,30 @@ fun PlayerScreen(
                 val exo = player
                 PlayerView(c).apply {
                     this.player = exo
-                    useController = true
-                    controllerShowTimeoutMs = 4000
-                    setShowSubtitleButton(true)
+                    useController = false // own control bar below (PlayerControls.kt): video + subtitles only here
                     keepScreenOn = true
-                    isFocusable = true
-                    isFocusableInTouchMode = true
-                    setControllerVisibilityListener(
-                        PlayerView.ControllerVisibilityListener { v ->
-                            controlsVisible = v == android.view.View.VISIBLE
-                            if (v != android.view.View.VISIBLE && hasFocus()) runCatching { rootFocus.requestFocus() }
-                        },
-                    )
-                    playerView = this
+                    isFocusable = false
                 }
             },
             modifier = Modifier.fillMaxSize(),
         )
+
+        if (controlsVisible && !released) {
+            PlayerControls(
+                player = player,
+                playFr = playFr,
+                hasNext = info?.nextKey != null,
+                onSeekBy = { seekBy(it) },
+                onSeekTo = { player.seekTo(it); lastSeekAt = System.currentTimeMillis(); showControls() },
+                onPlayPause = {
+                    if (player.playbackState == Player.STATE_ENDED) { player.seekTo(0L); player.play(); showControls() } else togglePlay()
+                },
+                onNext = { playNext("next button on the control bar") },
+                onBarFocus = { barFocused = it },
+                onMenu = { ctlMenuOpen = it; showControls() },
+                log = { plog(it) },
+            )
+        }
 
         // Sleep timer: shown with the control bar while a timer is set.
         if (sleepEndAt > 0L && controlsVisible) {
@@ -584,7 +613,7 @@ fun PlayerScreen(
         }
 
         if (showSkip) {
-            Box(Modifier.align(Alignment.BottomEnd).padding(48.dp, 48.dp, 48.dp, 110.dp).onFocusChanged { skipFocused = it.hasFocus }) {
+            Box(Modifier.align(Alignment.BottomEnd).padding(48.dp, 48.dp, 48.dp, if (controlsVisible) 250.dp else 110.dp).onFocusChanged { skipFocused = it.hasFocus }) {
                 Chip("Skip Intro", fr = introFocus) {
                     player.seekTo(i.introEnd)
                     lastSeekAt = System.currentTimeMillis()
@@ -601,7 +630,7 @@ fun PlayerScreen(
             Column(
                 Modifier
                     .align(Alignment.BottomEnd)
-                    .padding(48.dp, 48.dp, 48.dp, 110.dp)
+                    .padding(48.dp, 48.dp, 48.dp, if (controlsVisible) 250.dp else 110.dp)
                     .background(Color(0xCC000000), RoundedCornerShape(10.dp))
                     .padding(horizontal = 20.dp, vertical = 14.dp),
             ) {
