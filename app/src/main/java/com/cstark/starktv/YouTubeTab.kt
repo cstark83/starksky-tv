@@ -535,7 +535,7 @@ fun YtVideoScreen(id: String, title: String) {
     var failed by remember { mutableStateOf<String?>(null) }
     var detail by remember { mutableStateOf("") }
     var tries by remember { mutableIntStateOf(0) }
-    var view by remember { mutableStateOf<PlayerView?>(null) }
+    val rootFr = remember { FocusRequester() }
     val retryFr = remember { FocusRequester() }
     DisposableEffect(Unit) {
         NpDownloader.sink = { ylog(ctx, it) }
@@ -624,7 +624,7 @@ fun YtVideoScreen(id: String, title: String) {
         if (ok) {
             started = true
             ylog(ctx, "playing $id after ${now() - t0} ms")
-            view?.requestFocus()
+            focusSoon(rootFr)
         } else {
             detail = reasons.joinToString("  ·  ").ifBlank { "no source answered" }
             failed = if (badVideo) "This video can't be played (YouTube says it's unavailable)" else "This video isn't available right now"
@@ -635,32 +635,7 @@ fun YtVideoScreen(id: String, title: String) {
 
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         if (failed == null) {
-            AndroidView(
-                factory = { c ->
-                    object : PlayerView(c) {
-                        // bar hidden: left/right seek right away (15 s back / 10 s forward) instead of only showing the bar
-                        override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-                            val k = event.keyCode
-                            if ((k == KeyEvent.KEYCODE_DPAD_LEFT || k == KeyEvent.KEYCODE_DPAD_RIGHT) && !isControllerFullyVisible && started) {
-                                if (event.action == KeyEvent.ACTION_DOWN) {
-                                    if (k == KeyEvent.KEYCODE_DPAD_LEFT) player.seekBack() else player.seekForward()
-                                }
-                                return true
-                            }
-                            return super.dispatchKeyEvent(event)
-                        }
-                    }.apply {
-                        this.player = player
-                        useController = true
-                        keepScreenOn = true
-                        isFocusable = true
-                        isFocusableInTouchMode = true
-                        setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
-                        view = this
-                    }
-                },
-                modifier = Modifier.fillMaxSize(),
-            )
+            SimpleVideo(player, ready = started, rootFr = rootFr) { ylog(ctx, it) }
         }
         if (loading) {
             Column(

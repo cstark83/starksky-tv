@@ -400,7 +400,7 @@ fun TrailerScreen(api: PlexApi, req: TrailerReq) {
     var loading by remember { mutableStateOf(true) }
     var failed by remember { mutableStateOf<String?>(null) }
     var tries by remember { mutableIntStateOf(0) }
-    var view by remember { mutableStateOf<PlayerView?>(null) }
+    val rootFr = remember { FocusRequester() }
     val retryFr = remember { FocusRequester() }
     DisposableEffect(Unit) {
         NpDownloader.sink = { tlog(ctx, it) }
@@ -538,7 +538,7 @@ fun TrailerScreen(api: PlexApi, req: TrailerReq) {
         loading = false
         if (ok) {
             tlog(ctx, "playing after ${now() - all0} ms")
-            view?.requestFocus()
+            focusSoon(rootFr)
         } else {
             failed = reasons.joinToString("  ·  ").ifBlank { "no trailer source" }
             tlog(ctx, "none worked for ${req.title} after ${now() - all0} ms: $failed")
@@ -548,20 +548,7 @@ fun TrailerScreen(api: PlexApi, req: TrailerReq) {
 
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         if (failed == null) {
-            AndroidView(
-                factory = { c ->
-                    PlayerView(c).apply {
-                        this.player = player
-                        useController = true
-                        keepScreenOn = true
-                        isFocusable = true
-                        isFocusableInTouchMode = true
-                        setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
-                        view = this
-                    }
-                },
-                modifier = Modifier.fillMaxSize(),
-            )
+            SimpleVideo(player, ready = !loading, rootFr = rootFr) { tlog(ctx, it) }
         }
         if (loading) {
             Column(

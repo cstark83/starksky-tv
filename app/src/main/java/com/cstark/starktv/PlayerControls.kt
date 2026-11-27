@@ -125,6 +125,8 @@ fun PlayerControls(
     onBarFocus: (Boolean) -> Unit,
     onMenu: (Boolean) -> Unit,
     log: (String) -> Unit,
+    /** Trailers / YouTube: no CC or Audio button when the stream has no such tracks. */
+    hideEmptyTracks: Boolean = false,
 ) {
     val ctx = LocalContext.current
     val names = remember { DefaultTrackNameProvider(ctx.resources) }
@@ -221,13 +223,13 @@ fun PlayerControls(
                     }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    CtlButton(
+                    if (!hideEmptyTracks || list(C.TRACK_TYPE_TEXT).isNotEmpty()) CtlButton(
                         if (textSel != null) androidx.media3.ui.R.drawable.exo_ic_subtitle_on else androidx.media3.ui.R.drawable.exo_ic_subtitle_off,
                         52.dp, 30.dp, fr = ccFr,
                         tint = if (textSel != null) fill else Color.White,
                         label = shortName(textSel), labelColor = if (textSel != null) fill else LabelDim,
                     ) { openMenu(CtlMenu.Captions) }
-                    CtlButton(
+                    if (!hideEmptyTracks || list(C.TRACK_TYPE_AUDIO).isNotEmpty()) CtlButton(
                         androidx.media3.ui.R.drawable.exo_ic_audiotrack, 52.dp, 28.dp, fr = audioFr,
                         label = if (audioSel != null) shortName(audioSel) else "Audio",
                     ) { openMenu(CtlMenu.Audio) }
@@ -463,4 +465,103 @@ private fun clock(ms: Long): String {
     val s = (ms.coerceAtLeast(0L)) / 1000
     return if (s >= 3600) String.format(Locale.US, "%d:%02d:%02d", s / 3600, s / 60 % 60, s % 60)
     else String.format(Locale.US, "%d:%02d", s / 60, s % 60)
+}
+
+/**
+ * Video + the same control bar for the trailer and YouTube players (no Plex progress or watched writes here: this only
+ * drives the ExoPlayer). Bar hidden: Left 15 s back / Right 10 s forward, OK play/pause, Up/Down open the bar on play/pause.
+ * Bar open: the D-pad moves between its buttons. Shown while paused, else hidden 4 s after the last key. Back is never
+ * handled here (it leaves the screen as before). [ready] = something is playing (before that keys are left alone).
+ */
+@OptIn(UnstableApi::class)
+@Composable
+fun SimpleVideo(player: ExoPlayer, ready: Boolean, rootFr: FocusRequester, log: (String) -> Unit) {
+    var visible by remember { mutableStateOf(false) }
+    var hideAt by remember { mutableLongStateOf(0L) }
+    var barFocused by remember { mutableStateOf(false) }
+    var menuOpen by remember { mutableStateOf(false) }
+    val playFr = remember { FocusRequester() }
+    val scope = rememberCoroutineScope()
+    fun show() { visible = true; hideAt = System.currentTimeMillis() + 4000 }
+    fun seekBy(ms: Long) {
+        val d = player.duration
+        var to = (player.currentPosition + ms).coerceAtLeast(0L)
+        if (d != C.TIME_UNSET && d > 0) to = to.coerceAtMost(d)
+        player.seekTo(to); show()
+    }
+    fun playPause() {
+        if (player.playbackState == Player.STATE_ENDED) { player.seekTo(0L); player.play() }
+        else if (player.isPlaying) player.pause() else player.play()
+        show()
+    }
+    LaunchedEffect(ready) {
+        if (!ready) { visible = false; return@LaunchedEffect }
+        while (true) {
+            delay(200)
+            val st = player.playbackState
+            val hold = st == Player.STATE_ENDED || (st != Player.STATE_IDLE && !player.playWhenReady)
+            val now = System.currentTimeMillis()
+            if (hold) { visible = true; hideAt = now + 4000 }
+            else if (visible && !menuOpen && now > hideAt) {
+                val had = barFocused
+                visible = false
+                if (had) { delay(50); runCatching { rootFr.requestFocus() } }
+            }
+        }
+    }
+    Box(
+        Modifier.fillMaxSize()
+            .onPreviewKeyEvent { e ->
+                if (!ready) return@onPreviewKeyEvent false
+                if (visible) hideAt = maxOf(hideAt, System.currentTimeMillis() + 4000)
+                if (menuOpen) return@onPreviewKeyEvent false
+                val k = e.key
+                val media = k == Key.MediaPlayPause || k == Key.MediaPlay || k == Key.MediaPause
+                if (media) {
+                    if (e.type == KeyEventType.KeyDown) when (k) {
+                        Key.MediaPlay -> { player.play(); show() }
+                        Key.MediaPause -> { player.pause(); show() }
+                        else -> playPause()
+                    }
+                    return@onPreviewKeyEvent true
+                }
+                val dpad = isOkKey(k) || k == Key.DirectionLeft || k == Key.DirectionRight || k == Key.DirectionUp || k == Key.DirectionDown
+                if (!dpad || barFocused) return@onPreviewKeyEvent false
+                if (e.type == KeyEventType.KeyDown) when (k) {
+                    Key.DirectionLeft -> seekBy(-15_000L)
+                    Key.DirectionRight -> seekBy(10_000L)
+                    Key.DirectionUp, Key.DirectionDown -> { show(); scope.launch { focusSoon(playFr) } }
+                    else -> Unit
+                } else if (e.type == KeyEventType.KeyUp && isOkKey(k)) playPause()
+                true
+            }
+            .focusRequester(rootFr)
+            .focusable(),
+    ) {
+        androidx.compose.ui.viewinterop.AndroidView(
+            factory = { c ->
+                androidx.media3.ui.PlayerView(c).apply {
+                    this.player = player
+                    useController = false
+                    keepScreenOn = true
+                    isFocusable = false
+                    setShowBuffering(androidx.media3.ui.PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
+                }
+            },
+            modifier = Modifier.fillMaxSize(),
+        )
+        if (visible && ready) {
+            PlayerControls(
+                player = player, playFr = playFr, hasNext = false,
+                onSeekBy = { seekBy(it) },
+                onSeekTo = { player.seekTo(it); show() },
+                onPlayPause = { playPause() },
+                onNext = {},
+                onBarFocus = { barFocused = it },
+                onMenu = { menuOpen = it; show() },
+                log = log,
+                hideEmptyTracks = true,
+            )
+        }
+    }
 }
