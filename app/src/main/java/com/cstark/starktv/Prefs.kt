@@ -59,6 +59,11 @@ class Prefs(ctx: Context) {
         set(v) { sp.edit().putBoolean("introDaily", v).apply() }
 
     /** Resume rewind in seconds (15/30/45/60, default 60). Device-wide: same for every profile, kept on sign-out. */
+    /** Home idle screensaver after this many minutes (0 = off), default 5. */
+    var saverMin: Int
+        get() = sp.getInt("saverMin", 5).takeIf { it in SAVER_CHOICES } ?: 5
+        set(v) { sp.edit().putInt("saverMin", v).apply() }
+
     var resumeRewind: Int
         get() = sp.getInt("resumeRewind", 60).takeIf { it in RESUME_REWIND_CHOICES } ?: 60
         set(v) { sp.edit().putInt("resumeRewind", v).apply() }

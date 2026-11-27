@@ -47,6 +47,9 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.foundation.border
 import androidx.compose.ui.zIndex
 import androidx.compose.foundation.layout.wrapContentSize
@@ -337,6 +340,10 @@ class HomeData {
     val rowStates = HashMap<String, LazyListState>()
     /** The Discover tab chip: Up from Discover's own chips goes there. */
     val discoverChipFr = FocusRequester()
+    /** Last remote key on the main screen (plain field: read by the idle loops, never drives recomposition). */
+    var lastKeyAt = System.currentTimeMillis()
+    /** The idle screensaver is showing. */
+    var saver by mutableStateOf(false)
     /** Time of the last successful loadHome (0 = not yet); MainScreen copies it into prefs.lastSync. */
     var lastSync by mutableLongStateOf(0L)
 
@@ -499,8 +506,35 @@ fun MainScreen(
     }
     val accent = rememberAccent(api, if (home.tab == 0) home.selected else null)
 
+    // Idle screensaver: Home tab only (this screen is not even shown during playback, trailers, YouTube videos or Now
+    // Playing), after Settings' idle time; any key ends it and is swallowed, so focus stays exactly where it was.
+    var saverSwallowUp by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        home.lastKeyAt = System.currentTimeMillis()
+        home.saver = false
+        while (true) {
+            delay(5_000)
+            val min = prefs.saverMin
+            if (min > 0 && home.tab == 0 && home.rows != null && !Updater.nowOpen && !home.saver &&
+                System.currentTimeMillis() - home.lastKeyAt > min * 60_000L
+            ) home.saver = true
+        }
+    }
+
     CompositionLocalProvider(LocalAccent provides accent) {
-        Box(Modifier.fillMaxSize()) {
+        Box(
+            Modifier.fillMaxSize().onPreviewKeyEvent { e ->
+                home.lastKeyAt = System.currentTimeMillis()
+                when {
+                    home.saver -> {
+                        if (e.type == KeyEventType.KeyDown) { home.saver = false; saverSwallowUp = true }
+                        true
+                    }
+                    saverSwallowUp && e.type == KeyEventType.KeyUp -> { saverSwallowUp = false; true }
+                    else -> { if (e.type == KeyEventType.KeyDown) saverSwallowUp = false; false }
+                }
+            },
+        ) {
             if (home.tab == 0) HeroBackground(api, home.selected)
             Column(Modifier.fillMaxSize()) {
                 // Spotify: Starsky's own Now Playing screen (it offers to open the Spotify app only when nothing is playing)
@@ -530,6 +564,7 @@ fun MainScreen(
                 BackHandler { Updater.cancelUpdateNow() }
                 UpdatePanel()
             }
+            if (home.saver && home.tab == 0) Screensaver(api, home, prefs)
             if (updatedTo > 0) {
                 // plain text, not focusable: never takes focus from Home
                 Text(
@@ -798,6 +833,11 @@ fun SettingsScreen(
         Chip("Resume rewind: ${rewindLabel(rewind)}") {
             rewind = RESUME_REWIND_CHOICES[(RESUME_REWIND_CHOICES.indexOf(rewind) + 1) % RESUME_REWIND_CHOICES.size]
             prefs.resumeRewind = rewind
+        }
+        var saverMin by remember { mutableIntStateOf(prefs.saverMin) }
+        Chip("Screensaver on Home: ${if (saverMin == 0) "Off" else "after $saverMin min"}") {
+            saverMin = SAVER_CHOICES[(SAVER_CHOICES.indexOf(saverMin) + 1) % SAVER_CHOICES.size]
+            prefs.saverMin = saverMin
         }
         Chip("Temperature: ${if (celsius) "°C" else "°F"}") {
             celsius = !celsius
