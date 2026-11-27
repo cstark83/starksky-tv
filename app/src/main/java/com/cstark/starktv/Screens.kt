@@ -31,6 +31,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -528,10 +529,51 @@ fun MainScreen(
         }
     }
 
+    // Hero trailer (Settings "Hero trailers", off by default): the pinned hero sat 4 s on a title with no key -> its LOCAL
+    // Plex trailer (an extra on the server; never YouTube or online lookups) plays muted behind the hero; any key stops it
+    // at once. Home tab only, never with the screensaver; no Plex timeline/watched calls. One player, created on first use.
+    var heroPlayer by remember { mutableStateOf<androidx.media3.exoplayer.ExoPlayer?>(null) }
+    var heroOn by remember { mutableStateOf(false) }
+    val heroEnabled = prefs.heroTrailers
+    DisposableEffect(Unit) { onDispose { heroPlayer?.release(); heroPlayer = null } }
+    LaunchedEffect(home.selected?.ratingKey, home.tab, home.saver, heroEnabled, home.selectedExternal) {
+        heroOn = false
+        heroPlayer?.let { it.stop(); it.clearMediaItems() }
+        val sel = home.selected
+        if (!heroEnabled || home.tab != 0 || home.saver || sel == null || home.selectedExternal) return@LaunchedEffect
+        var part: String? = null
+        var looked = false
+        while (true) {
+            while (System.currentTimeMillis() - home.lastKeyAt < 4_000) delay(300)
+            if (!looked) { part = api.localTrailer(sel.showKey); looked = true }
+            val pk = part ?: return@LaunchedEffect
+            if (System.currentTimeMillis() - home.lastKeyAt < 4_000) continue
+            val p = heroPlayer ?: androidx.media3.exoplayer.ExoPlayer.Builder(ctx).build().also { heroPlayer = it }
+            p.volume = 0f
+            p.repeatMode = androidx.media3.common.Player.REPEAT_MODE_OFF
+            p.setMediaItem(androidx.media3.common.MediaItem.fromUri(api.media(pk)))
+            p.prepare()
+            p.playWhenReady = true
+            val started = System.currentTimeMillis()
+            // shown once the first frame is there; stops on any key, at the end, or on an error
+            while (true) {
+                delay(150)
+                if (!heroOn && p.isPlaying && p.currentPosition > 200) heroOn = true
+                val keyed = home.lastKeyAt > started
+                val st = p.playbackState
+                if (keyed || st == androidx.media3.common.Player.STATE_ENDED || p.playerError != null || (st == androidx.media3.common.Player.STATE_IDLE && System.currentTimeMillis() - started > 15_000)) break
+            }
+            heroOn = false
+            p.stop(); p.clearMediaItems()
+            if (p.playbackState == androidx.media3.common.Player.STATE_IDLE && home.lastKeyAt <= started) return@LaunchedEffect // ended: once per title
+        }
+    }
+
     CompositionLocalProvider(LocalAccent provides accent) {
         Box(
             Modifier.fillMaxSize().onPreviewKeyEvent { e ->
                 home.lastKeyAt = System.currentTimeMillis()
+                if (heroOn) { heroOn = false; heroPlayer?.pause() } // stop the hero trailer at once (its loop cleans up)
                 when {
                     home.saver -> {
                         if (e.type == KeyEventType.KeyDown) { home.saver = false; saverSwallowUp = true }
@@ -542,7 +584,7 @@ fun MainScreen(
                 }
             },
         ) {
-            if (home.tab == 0) HeroBackground(api, home.selected)
+            if (home.tab == 0) HeroBackground(api, home.selected, heroPlayer, heroOn)
             Column(Modifier.fillMaxSize()) {
                 // Spotify: Starsky's own Now Playing screen (it offers to open the Spotify app only when nothing is playing)
                 TopBar(prefs, home, onSearch, onSwitchProfile, onWeather, onNowPlaying)
@@ -845,6 +887,11 @@ fun SettingsScreen(
         Chip("Screensaver on Home: ${if (saverMin == 0) "Off" else "after $saverMin min"}") {
             saverMin = SAVER_CHOICES[(SAVER_CHOICES.indexOf(saverMin) + 1) % SAVER_CHOICES.size]
             prefs.saverMin = saverMin
+        }
+        var heroTr by remember { mutableStateOf(prefs.heroTrailers) }
+        Chip("Hero trailers: ${if (heroTr) "On" else "Off"}") {
+            heroTr = !heroTr
+            prefs.heroTrailers = heroTr
         }
         Chip("Temperature: ${if (celsius) "°C" else "°F"}") {
             celsius = !celsius

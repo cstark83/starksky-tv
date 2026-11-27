@@ -195,7 +195,7 @@ fun TopBar(prefs: Prefs, home: HomeData, onSearch: () -> Unit, onProfile: () -> 
 private fun backdropPath(item: Item?): String? = item?.let { it.art ?: it.thumb }
 
 @Composable
-fun HeroBackground(api: PlexApi, item: Item?) {
+fun HeroBackground(api: PlexApi, item: Item?, video: androidx.media3.exoplayer.ExoPlayer? = null, showVideo: Boolean = false) {
     val t = rememberInfiniteTransition(label = "pan")
     val zoom by t.animateFloat(
         1.0f, 1.10f,
@@ -223,6 +223,14 @@ fun HeroBackground(api: PlexApi, item: Item?) {
                     modifier = Modifier.fillMaxSize().graphicsLayer { scaleX = zoom; scaleY = zoom },
                 )
             }
+        }
+        // hero trailer (Settings, off by default): muted video over the backdrop, faded in once its first frame is drawn
+        if (video != null) {
+            val a by androidx.compose.animation.core.animateFloatAsState(if (showVideo) 1f else 0f, tween(if (showVideo) 600 else 120), label = "heroVid")
+            androidx.compose.ui.viewinterop.AndroidView(
+                factory = { c -> android.view.TextureView(c).also { video.setVideoTextureView(it) } },
+                modifier = Modifier.fillMaxSize().alpha(a),
+            )
         }
         Box(
             Modifier.fillMaxSize().background(

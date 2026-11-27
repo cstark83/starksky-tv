@@ -59,6 +59,11 @@ class Prefs(ctx: Context) {
         set(v) { sp.edit().putBoolean("introDaily", v).apply() }
 
     /** Resume rewind in seconds (15/30/45/60, default 60). Device-wide: same for every profile, kept on sign-out. */
+    /** Home hero: play the title's local Plex trailer muted after 4 s without keys (default off). */
+    var heroTrailers: Boolean
+        get() = sp.getBoolean("heroTrailers", false)
+        set(v) { sp.edit().putBoolean("heroTrailers", v).apply() }
+
     /** Home idle screensaver after this many minutes (0 = off), default 5. */
     var saverMin: Int
         get() = sp.getInt("saverMin", 5).takeIf { it in SAVER_CHOICES } ?: 5

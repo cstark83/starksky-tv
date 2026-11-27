@@ -460,6 +460,14 @@ class PlexApi(private val prefs: Prefs) {
     }
 
     /** Most recently watched titles in one library (newest first). */
+    /** A trailer that is a local file on the server (Plex extra under /library/parts), or null. No online lookups. */
+    suspend fun localTrailer(ratingKey: String): String? = try {
+        extrasFrom(srv("/library/metadata/$ratingKey/extras").optJSONArray("Metadata"))
+            .firstOrNull { it.partKey.startsWith("/library/parts/") }?.partKey
+    } catch (e: Exception) {
+        null
+    }
+
     /** Plex's "related" hubs for a movie/show (More like this), with the profile's server token. Empty on any error. */
     suspend fun related(ratingKey: String): List<Item> = try {
         val hubs = srv("/hubs/metadata/$ratingKey/related?count=20").optJSONArray("Hub")
