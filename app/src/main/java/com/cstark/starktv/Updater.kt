@@ -31,6 +31,9 @@ import java.util.concurrent.TimeUnit
 
 const val UPDATE_REPO = "cstark83/starksky-tv"
 
+/** Latest build number + its APK link, from Tower (LAN only; Tower reads the private GitHub repo with its own login). */
+const val TOWER_LATEST_URL = "http://192.168.1.8:8480/latest"
+
 /** Tower's "install the latest build now" endpoint (LAN only, answers only the SHIELD; scripts/starsky-update-now on Tower). */
 const val TOWER_UPDATE_URL = "http://192.168.1.8:8480/update-now"
 private const val TOWER_WAIT_MS = 90_000L
@@ -38,7 +41,7 @@ private const val TOWER_WAIT_MS = 90_000L
 /** Steps of the top-bar Update (see UpdatePanel). */
 enum class UpStep { Contacting, Waiting, Downloading, Confirm, Installing, Failed }
 
-/** Checks GitHub Releases for a newer build and installs it (Android asks you to press Install once). */
+/** Asks Tower for the newest GitHub release build and installs it (Android asks you to press Install once). */
 object Updater {
     var newBuild by mutableIntStateOf(0)
     var url by mutableStateOf<String?>(null)
@@ -60,26 +63,21 @@ object Updater {
         busy = true
         status = "Checking for updates…"
         try {
+            // Tower answers from GitHub with its saved login (the repo is private), see TOWER_LATEST_URL
             val body = withContext(Dispatchers.IO) {
-                val r = Request.Builder()
-                    .url("https://api.github.com/repos/$UPDATE_REPO/releases/latest")
-                    .header("Accept", "application/vnd.github+json")
-                    .build()
-                http.newCall(r).execute().use { resp ->
-                    if (!resp.isSuccessful) error("HTTP ${resp.code}")
-                    resp.body!!.string()
+                val r = Request.Builder().url(TOWER_LATEST_URL).build()
+                try {
+                    latestHttp.newCall(r).execute().use { resp ->
+                        if (!resp.isSuccessful) error("Tower answered HTTP ${resp.code}")
+                        resp.body!!.string()
+                    }
+                } catch (e: java.io.IOException) {
+                    error("Tower can't be reached")
                 }
             }
             val j = JSONObject(body)
-            val n = j.optString("tag_name").removePrefix("build-").toIntOrNull() ?: 0
-            var apk: String? = null
-            val assets = j.optJSONArray("assets")
-            if (assets != null) {
-                for (i in 0 until assets.length()) {
-                    val a = assets.getJSONObject(i)
-                    if (a.optString("name").endsWith(".apk")) apk = a.optString("browser_download_url")
-                }
-            }
+            val n = j.optInt("build", 0)
+            val apk: String? = j.optString("apk").takeIf { it.startsWith("http") }
             if (n > current(ctx) && apk != null) {
                 newBuild = n
                 url = apk
@@ -154,6 +152,12 @@ object Updater {
     var nowTarget by mutableIntStateOf(0)
     var nowViaTower by mutableStateOf(true)
     private var nowJob: Job? = null
+
+    /** /latest can take up to ~15 s while Tower asks GitHub. */
+    private val latestHttp = OkHttpClient.Builder()
+        .connectTimeout(4, TimeUnit.SECONDS)
+        .readTimeout(20, TimeUnit.SECONDS)
+        .build()
 
     private val towerHttp = OkHttpClient.Builder()
         .connectTimeout(4, TimeUnit.SECONDS)
@@ -242,7 +246,7 @@ object Updater {
         val link = url
         if (link == null) {
             nowStep = UpStep.Failed
-            nowMsg = "$why, and the update can't be found on GitHub right now. Try again later or use Settings."
+            nowMsg = "$why, and the update can't be found on Tower right now. Try again later or use Settings."
             return
         }
         if (Build.VERSION.SDK_INT >= 26 && !ctx.packageManager.canRequestPackageInstalls()) {

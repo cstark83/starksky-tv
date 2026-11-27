@@ -50,10 +50,8 @@ jobs:
       - name: Build debug APK
         run: gradle assembleDebug -PbuildNumber=${{ github.run_number }} --no-daemon
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: stark-tv-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+      # (2026-11-27) no upload-artifact step any more: the APK is in the release below; a private repo on the free plan has
+      # only 500 MB of artifact storage, and a full quota would fail the build before the release is published.
 
       - name: Publish release (so the APK has a direct download link)
         uses: softprops/action-gh-release@v2
