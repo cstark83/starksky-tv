@@ -35,6 +35,7 @@ data class Item(
     val guid: String? = null,
     val tmdbId: String? = null,
     val titleSort: String? = null, // Plex sort title ("Matrix" for "The Matrix"); null when it equals the title
+    val addedAt: Long = 0L,
 ) {
     /** The key of the show/movie this card should open. */
     val showKey: String
@@ -131,6 +132,7 @@ fun JSONObject.toItem() = Item(
     guid = str("guid"),
     tmdbId = tmdbGuid(),
     titleSort = str("titleSort"),
+    addedAt = optLong("addedAt"),
 )
 
 class PlexApi(private val prefs: Prefs) {
@@ -458,6 +460,16 @@ class PlexApi(private val prefs: Prefs) {
     }
 
     /** Most recently watched titles in one library (newest first). */
+    /** Plex's "related" hubs for a movie/show (More like this), with the profile's server token. Empty on any error. */
+    suspend fun related(ratingKey: String): List<Item> = try {
+        val hubs = srv("/hubs/metadata/$ratingKey/related?count=20").optJSONArray("Hub")
+        val out = mutableListOf<Item>()
+        if (hubs != null) for (i in 0 until hubs.length()) out += hubs.getJSONObject(i).metas()
+        out.filter { it.ratingKey != ratingKey && (it.type == "movie" || it.type == "show") }.distinctBy { it.ratingKey }.take(20)
+    } catch (e: Exception) {
+        emptyList()
+    }
+
     suspend fun recentlyWatched(s: Section): List<Item> =
         srv("/library/sections/${s.key}/all?sort=lastViewedAt:desc&X-Plex-Container-Start=0&X-Plex-Container-Size=15")
             .metas()

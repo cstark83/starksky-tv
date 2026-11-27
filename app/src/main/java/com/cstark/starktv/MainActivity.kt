@@ -193,6 +193,7 @@ fun App(api: PlexApi, prefs: Prefs, skipIntro: Boolean = false) {
                 api, s.key, refresh,
                 onPlay = { item, resume -> stack.add(Screen.Play(item.ratingKey, if (resume && item.resumable) item.viewOffset else 0L)) },
                 onTrailer = { t -> stack.add(Screen.Trailer(t)) },
+                onOpen = { stack.add(Screen.Detail(it)) },
             )
         }
 

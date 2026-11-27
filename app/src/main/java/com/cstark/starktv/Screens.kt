@@ -384,15 +384,25 @@ suspend fun loadHome(api: PlexApi, d: HomeData): Boolean {
 
         var tvDone = false
         var movDone = false
+        val added = mutableListOf<Item>()
         for (s in secs) {
             val items = api.recent(s).distinctBy { it.ratingKey }
             if (items.isEmpty()) continue
+            added += items
             val title = when {
                 s.type == "show" && !tvDone -> { tvDone = true; "New TV" }
                 s.type == "movie" && !movDone -> { movDone = true; "New Movies" }
                 else -> "New in ${s.title}"
             }
             rows += HomeRow(title, items, false, false)
+        }
+
+        // Recently Added: the newest movies and shows across every library this profile can see (the server token, so a
+        // kid profile only gets what its restrictions allow, like every other row), after the Watchlist
+        val newest = added.sortedByDescending { it.addedAt }.distinctBy { it.showKey }.take(15)
+        if (newest.isNotEmpty()) {
+            val at = rows.indexOfFirst { it.external }.let { if (it >= 0) it + 1 else rows.count { r -> r.playDirect } }
+            rows.add(at, HomeRow("Recently Added", newest, false, false))
         }
 
         // Recently watched: newest first across all libraries, minus anything already up top.
@@ -880,6 +890,7 @@ fun DetailScreen(
     refresh: Int,
     onPlay: (Item, Boolean) -> Unit,
     onTrailer: (TrailerReq) -> Unit,
+    onOpen: (String) -> Unit = {},
 ) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -917,6 +928,11 @@ fun DetailScreen(
     }
     LaunchedEffect(d.item.ratingKey) {
         wlKeys = api.watchlist().map { it.ratingKey }.toSet()
+    }
+    // More like this (Plex related hubs), movies and shows only; the row is left out when Plex has nothing
+    var related by remember { mutableStateOf<List<Item>>(emptyList()) }
+    LaunchedEffect(d.item.ratingKey) {
+        if (d.item.type == "movie" || d.item.type == "show") related = api.related(d.item.ratingKey)
     }
     /**
      * Hand mark: the page shows it at once (episodes in [covers] and the title itself), then Plex gets it through the mark
@@ -1097,6 +1113,22 @@ fun DetailScreen(
                     EpisodeRow(api, ep, fr, onClick = { onPlay(ep, true) }, onLongPress = { episodeMenu(ep, fr) }, onToggle = {
                         mark(ep.ratingKey, !ep.watchedDone, "${top.title} ${ep.epCode}") { it.ratingKey == ep.ratingKey }
                     })
+                }
+            }
+            if (related.isNotEmpty()) {
+                item(key = "related") {
+                    Column(Modifier.padding(top = 24.dp)) {
+                        Text("More like this", fontSize = 18.sp, fontWeight = FontWeight.Light, letterSpacing = 1.sp, modifier = Modifier.padding(bottom = 10.dp))
+                        val dim = remember { DimGroup() }
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(16.dp),
+                            contentPadding = PaddingValues(vertical = 14.dp),
+                        ) {
+                            items(related, key = { it.ratingKey }) { r ->
+                                PosterCard(api, r, false, posterH = tv.posterH * 0.8f, dim = dim) { onOpen(r.ratingKey) }
+                            }
+                        }
+                    }
                 }
             }
         }
