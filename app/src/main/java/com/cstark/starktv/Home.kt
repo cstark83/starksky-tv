@@ -169,8 +169,10 @@ fun TopBar(prefs: Prefs, home: HomeData, onSearch: () -> Unit, onProfile: () -> 
     ) {
         ClockBlock()
         Row(
-            Modifier.weight(1f).padding(top = 8.dp).padding(horizontal = 12.dp).horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            // chips keep their size; the focused one grows ~1.2x, so the gaps and the inner padding leave it room
+            Modifier.weight(1f).padding(top = 4.dp).padding(horizontal = 2.dp).horizontalScroll(rememberScrollState())
+                .padding(horizontal = 12.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             // Back from the picker returns to Home, on the poster you were on (NavMemory "home")
             Chip(prefs.userName ?: "Profile", false, compact = true) { NavMemory.restoreTo = "home"; onProfile() }

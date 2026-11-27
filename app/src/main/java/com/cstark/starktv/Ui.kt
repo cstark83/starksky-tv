@@ -2,6 +2,13 @@ package com.cstark.starktv
 
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.spring
+import androidx.compose.ui.zIndex
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -108,6 +115,8 @@ fun Focusable(
     onClick: () -> Unit,
     onFocus: (() -> Unit)? = null,
     onLongPress: (() -> Unit)? = null,
+    /** Scale animation length in ms (null = the default spring). Chips use 120 ms. */
+    scaleMs: Int? = null,
     content: @Composable BoxScope.(Boolean) -> Unit,
 ) {
     val accent = LocalAccent.current
@@ -117,9 +126,14 @@ fun Focusable(
     var okDown by remember { mutableStateOf(false) }
     var holdJob by remember { mutableStateOf<Job?>(null) }
     val scope = rememberCoroutineScope()
-    val scale by animateFloatAsState(if (focused) scaleOnFocus else 1f, label = "focusScale")
+    val scale by animateFloatAsState(
+        if (focused) scaleOnFocus else 1f,
+        if (scaleMs != null) tween(scaleMs) else spring(),
+        label = "focusScale",
+    )
     val shape = RoundedCornerShape(10.dp)
-    var m = modifier.graphicsLayer { scaleX = scale; scaleY = scale }
+    // focused on top of its neighbours (a grown chip or poster is never drawn under the next one)
+    var m = modifier.zIndex(if (focused) 1f else 0f).graphicsLayer { scaleX = scale; scaleY = scale }
     if (fr != null) m = m.focusRequester(fr)
     Box(
         m.onFocusChanged {
@@ -165,6 +179,9 @@ fun Focusable(
     }
 }
 
+/** Unfocused, unselected chip fill: dark enough to read on bright artwork. */
+val ChipIdle = Color(0x33FFFFFF)
+
 @Composable
 fun Chip(
     text: String,
@@ -178,16 +195,23 @@ fun Chip(
     onClick: () -> Unit,
 ) {
     val accent = LocalAccent.current
-    Focusable(modifier, fr, 1.05f, onClick, onFocus, onLongPress) { f ->
+    // Focused: about 1.2x (120 ms) with bold text; layout size never changes. Very wide chips (Settings lines) grow at most
+    // ~48dp in total, so they don't run off the screen edge.
+    val density = LocalDensity.current
+    var widthPx by remember { mutableIntStateOf(0) }
+    val maxGrow = with(density) { 48.dp.toPx() }
+    val grow = if (widthPx > 0) minOf(1.2f, 1f + maxGrow / widthPx) else 1.2f
+    Focusable(modifier.onSizeChanged { widthPx = it.width }, fr, grow, onClick, onFocus, onLongPress, scaleMs = 120) { f ->
         Box(
             (if (fill) Modifier.fillMaxSize() else Modifier)
-                .background(if (f) Color.White else if (selected) accent else Color(0x33FFFFFF))
+                .background(if (f) Color.White else if (selected) accent else ChipIdle)
                 .padding(horizontal = if (compact) 8.dp else 20.dp, vertical = if (compact) 8.dp else 10.dp),
             contentAlignment = Alignment.Center,
         ) {
             Text(
                 text,
                 color = if (f || selected) Color.Black else Color.White,
+                fontWeight = if (f) FontWeight.Bold else FontWeight.Normal,
                 fontSize = if (compact) 14.sp else 16.sp,
                 maxLines = 1,
                 softWrap = false,
