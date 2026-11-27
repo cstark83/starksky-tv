@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.C
+import androidx.media3.common.Format
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
@@ -123,6 +124,7 @@ fun PlayerScreen(
     var hideAt by remember { mutableLongStateOf(0L) }
     var barFocused by remember { mutableStateOf(false) }
     var ctlMenuOpen by remember { mutableStateOf(false) }
+    var pausedNow by remember { mutableStateOf(false) }
     val playFr = remember { FocusRequester() }
     // Plex preview thumbnails for the seek bar (only when Plex has them for this file; loaded once per item, in memory)
     var previews by remember { mutableStateOf<Bif?>(null) }
@@ -480,6 +482,7 @@ fun PlayerScreen(
             delay(200)
             val st = runCatching { player.playbackState }.getOrDefault(Player.STATE_IDLE)
             val hold = st == Player.STATE_ENDED || (st != Player.STATE_IDLE && !player.playWhenReady)
+            pausedNow = hold
             val now = System.currentTimeMillis()
             if (hold) {
                 controlsVisible = true; hideAt = now + 4000
@@ -611,6 +614,24 @@ fun PlayerScreen(
             )
         }
 
+        // Playback info badge while paused or a menu is open: what really plays (ExoPlayer's selected formats). The app
+        // always plays the original file (/library/parts), so Plex never transcodes here: "Direct Play".
+        if (controlsVisible && !released && (pausedNow || ctlMenuOpen || menuOpen) && req.url == null) {
+            val badge = remember(pausedNow, ctlMenuOpen, menuOpen) { playBadge(player.videoFormat, player.audioFormat) }
+            if (badge != null) {
+                Text(
+                    badge,
+                    fontSize = 16.sp,
+                    color = Color.White,
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(32.dp)
+                        .background(Color(0xB3000000), RoundedCornerShape(8.dp))
+                        .padding(horizontal = 14.dp, vertical = 8.dp),
+                )
+            }
+        }
+
         // Sleep timer: shown with the control bar while a timer is set.
         if (sleepEndAt > 0L && controlsVisible) {
             Text(
@@ -687,6 +708,34 @@ fun PlayerScreen(
             )
         }
     }
+}
+
+// ---------------------------------------------------------------- playback info badge
+
+/** "Direct Play · 1080p HEVC · English AAC 5.1", or null when nothing is known yet. */
+fun playBadge(v: androidx.media3.common.Format?, a: androidx.media3.common.Format?): String? {
+    fun codec(m: String?) = when (m) {
+        MimeTypes.VIDEO_H264 -> "H.264"; MimeTypes.VIDEO_H265 -> "HEVC"; MimeTypes.VIDEO_AV1 -> "AV1"; MimeTypes.VIDEO_VP9 -> "VP9"
+        MimeTypes.VIDEO_MPEG2 -> "MPEG-2"; MimeTypes.AUDIO_AAC -> "AAC"; MimeTypes.AUDIO_AC3 -> "AC3"; MimeTypes.AUDIO_E_AC3 -> "E-AC3"
+        MimeTypes.AUDIO_E_AC3_JOC -> "E-AC3 Atmos"; MimeTypes.AUDIO_DTS -> "DTS"; MimeTypes.AUDIO_DTS_HD -> "DTS-HD"
+        MimeTypes.AUDIO_TRUEHD -> "TrueHD"; MimeTypes.AUDIO_OPUS -> "Opus"; MimeTypes.AUDIO_FLAC -> "FLAC"; MimeTypes.AUDIO_MPEG -> "MP3"
+        null -> null
+        else -> m.substringAfter('/').uppercase()
+    }
+    val vid = v?.let { f ->
+        val h = f.height
+        val res = when { h <= 0 -> null; h >= 2000 -> "4K"; h >= 1000 -> "1080p"; h >= 700 -> "720p"; else -> "${h}p" }
+        listOfNotNull(res, codec(f.sampleMimeType)).joinToString(" ").ifBlank { null }
+    }
+    val aud = a?.let { f ->
+        val lang = f.language?.takeIf { it.isNotBlank() && it != "und" }?.let {
+            java.util.Locale.forLanguageTag(it).getDisplayLanguage(java.util.Locale.ENGLISH).ifBlank { null }
+        }
+        val ch = when (f.channelCount) { 1 -> "Mono"; 2 -> "2.0"; 6 -> "5.1"; 8 -> "7.1"; Format.NO_VALUE -> null; else -> "${f.channelCount}ch" }
+        listOfNotNull(lang, codec(f.sampleMimeType), ch).joinToString(" ").ifBlank { null }
+    }
+    if (vid == null && aud == null) return null
+    return listOfNotNull("Direct Play", vid, aud).joinToString("  ·  ")
 }
 
 // ---------------------------------------------------------------- remembered audio / subtitle choice (per show)
