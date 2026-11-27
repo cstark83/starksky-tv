@@ -47,6 +47,11 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.border
+import androidx.compose.ui.zIndex
+import androidx.compose.foundation.layout.wrapContentSize
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
@@ -648,6 +653,7 @@ fun LibraryScreen(api: PlexApi, section: Section, refresh: Int, onPlay: (Item) -
                 m
             }
             val current = if (showAz) list.getOrNull(target)?.let { azLetter(it) } else null
+            val libDim = remember(section.key) { DimGroup() }
             Row(Modifier.fillMaxSize()) {
                 LazyVerticalGrid(
                     state = gridState,
@@ -660,6 +666,7 @@ fun LibraryScreen(api: PlexApi, section: Section, refresh: Int, onPlay: (Item) -
                     verticalArrangement = Arrangement.spacedBy(20.dp),
                 ) {
                     gridItemsIndexed(list) { i, item ->
+                        val dim = libDim
                         Box(if (i == target) Modifier.focusRequester(targetFr) else Modifier) {
                             PosterCard(
                                 api, item, false,
@@ -670,6 +677,7 @@ fun LibraryScreen(api: PlexApi, section: Section, refresh: Int, onPlay: (Item) -
                                     NavMemory.restoreTo = area
                                 },
                                 onLongPress = { target = i; openMenu(item) },
+                                dim = dim,
                             ) { onOpen(item) }
                         }
                     }
@@ -713,6 +721,7 @@ private fun AzIndex(firstIndex: Map<Char, Int>, current: Char?, back: FocusReque
                     .weight(1f, fill = false)
                     .height(16.dp)
                     .fillMaxWidth()
+                    .zIndex(if (focused) 1f else 0f)
                     .focusRequester(frs[i])
                     .focusProperties {
                         canFocus = idx != null
@@ -725,21 +734,29 @@ private fun AzIndex(firstIndex: Map<Char, Int>, current: Char?, back: FocusReque
                     .clickable(enabled = idx != null) { if (idx != null) onJump(idx) },
                 contentAlignment = Alignment.Center,
             ) {
-                Text(
-                    ch.toString(),
-                    fontSize = 12.sp,
-                    lineHeight = 12.sp,
-                    fontWeight = if (focused || ch == current) FontWeight.Bold else FontWeight.Normal,
-                    color = when {
-                        focused -> Color.Black
-                        ch == current -> accent
-                        idx != null -> Pal.Dim
-                        else -> Pal.Dim.copy(alpha = 0.3f)
-                    },
-                    modifier = Modifier
-                        .background(if (focused) Color.White else Color.Transparent, RoundedCornerShape(4.dp))
-                        .padding(horizontal = 4.dp),
-                )
+                // 27 letters must fit the column, so unfocused letters stay small; the focused one is drawn 20sp in a solid
+                // accent circle that overflows its slot (layout unchanged)
+                if (focused) {
+                    Box(
+                        Modifier.wrapContentSize(unbounded = true).zIndex(1f).size(34.dp)
+                            .background(accent, CircleShape).border(2.dp, Color.White, CircleShape),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(ch.toString(), fontSize = 20.sp, lineHeight = 20.sp, fontWeight = FontWeight.Bold, color = Color(0xFF101010))
+                    }
+                } else {
+                    Text(
+                        ch.toString(),
+                        fontSize = 14.sp,
+                        lineHeight = 14.sp,
+                        fontWeight = if (ch == current) FontWeight.Bold else FontWeight.Normal,
+                        color = when {
+                            ch == current -> accent
+                            idx != null -> Pal.Dim
+                            else -> Pal.Dim.copy(alpha = 0.3f)
+                        },
+                    )
+                }
             }
         }
     }
@@ -1099,7 +1116,7 @@ fun EpisodeRow(
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         Focusable(Modifier.weight(1f), fr = fr, scaleOnFocus = 1.02f, onClick = onClick, onLongPress = onLongPress) { f ->
             Row(
-                Modifier.fillMaxWidth().background(if (f) Color(0xFF2A2A33) else Color(0xFF16161B)).padding(8.dp),
+                Modifier.fillMaxWidth().background(if (f) LocalAccent.current.copy(alpha = 0.28f).compositeOver(Color(0xFF16161B)) else Color(0xFF16161B)).padding(8.dp),
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {

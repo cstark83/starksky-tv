@@ -51,6 +51,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -403,8 +404,8 @@ private fun YouTubeBrowse(onVideo: (YtVideo) -> Unit) {
                     decorationBox = { inner ->
                         Box(
                             Modifier
-                                .background(Color(0x22FFFFFF), RoundedCornerShape(10.dp))
-                                .border(if (fieldFocused) 3.dp else 0.dp, if (fieldFocused) accent else Color.Transparent, RoundedCornerShape(10.dp))
+                                .background(if (fieldFocused) accent.copy(alpha = 0.22f).compositeOver(Color(0xFF1A1A20)) else Color(0x22FFFFFF), RoundedCornerShape(10.dp))
+                                .border(if (fieldFocused) 4.dp else 0.dp, if (fieldFocused) accent else Color.Transparent, RoundedCornerShape(10.dp))
                                 .padding(horizontal = 16.dp, vertical = 10.dp),
                         ) {
                             if (m.query.isEmpty()) Text("Search YouTube", color = Pal.Dim, fontSize = 20.sp)

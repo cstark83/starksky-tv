@@ -50,6 +50,7 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
@@ -127,7 +128,7 @@ fun WeatherBlock(prefs: Prefs, onOpen: () -> Unit) {
     Focusable(fr = fr, scaleOnFocus = 1.06f, onClick = onOpen, onFocus = { NavMemory.restoreTo = "weather" }) { f ->
         Column(
             Modifier
-                .background(if (f) Color(0x33FFFFFF) else Color.Transparent)
+                .background(if (f) LocalAccent.current.copy(alpha = 0.30f).compositeOver(Color(0xCC101014)) else Color.Transparent)
                 .padding(horizontal = 10.dp, vertical = 2.dp),
             horizontalAlignment = Alignment.End,
         ) {
@@ -419,8 +420,9 @@ fun HomeScreen(
     val labelH = 8.dp + with(density) { 14.sp.toDp() } * 1.45f
     val rowChrome = 12.dp + rowTitleH + labelH                       // list top padding + row title + poster label
     val heroMin = 140.dp
-    val posterH = ((avail - heroMin - rowChrome) / 1.06f).coerceIn(150.dp, 225.dp)
-    val rowsNeed = rowChrome + posterH * 1.06f
+    // 1.08: room for the focused poster's scale-up and lift
+    val posterH = ((avail - heroMin - rowChrome) / 1.08f).coerceIn(150.dp, 225.dp)
+    val rowsNeed = rowChrome + posterH * 1.08f
     val heroCap = maxOf(heroMin, tv.screenH * 0.45f - (tv.screenH - tv.bottom - avail))  // top bar counts toward the 45%
     val heroH = (avail - rowsNeed).coerceIn(heroMin, heroCap)
     Column(Modifier.fillMaxSize()) {
@@ -473,6 +475,7 @@ fun HomeScreen(
                             letterSpacing = 1.sp,
                             modifier = Modifier.padding(start = tv.side, bottom = 10.dp),
                         )
+                        val dim = remember(row.title) { DimGroup() }
                         LazyRow(
                             state = home.rowStates.getOrPut(row.title) { LazyListState() },
                             contentPadding = PaddingValues(horizontal = tv.side),
@@ -499,6 +502,7 @@ fun HomeScreen(
                                     onLongPress = if (row.external) null else ({ menu = item to row.playDirect }),
                                     posterH = posterH,
                                     revealLabel = false,
+                                    dim = dim,
                                 ) {
                                     if (row.external) openExternal(item) else if (row.playDirect) onPlay(item) else onDetail(item.showKey)
                                 }

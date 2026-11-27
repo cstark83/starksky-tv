@@ -37,6 +37,8 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.foundation.focusGroup
@@ -117,6 +119,12 @@ fun Focusable(
     onLongPress: (() -> Unit)? = null,
     /** Scale animation length in ms (null = the default spring). Chips use 120 ms. */
     scaleMs: Int? = null,
+    /** Posters/cards: lift by this much and glow in the accent color when focused. */
+    lift: Dp = 0.dp,
+    /** Called with true/false whenever focus arrives or leaves. */
+    onFocusChange: ((Boolean) -> Unit)? = null,
+    /** Drawn dimmer (a neighbour in the same row is focused). */
+    dimmed: Boolean = false,
     content: @Composable BoxScope.(Boolean) -> Unit,
 ) {
     val accent = LocalAccent.current
@@ -133,10 +141,25 @@ fun Focusable(
     )
     val shape = RoundedCornerShape(10.dp)
     // focused on top of its neighbours (a grown chip or poster is never drawn under the next one)
-    var m = modifier.zIndex(if (focused) 1f else 0f).graphicsLayer { scaleX = scale; scaleY = scale }
+    val liftPx = with(LocalDensity.current) { lift.toPx() }
+    val glow = lift > 0.dp
+    val up by animateFloatAsState(if (focused && glow) 1f else 0f, tween(150), label = "lift")
+    val dimA by animateFloatAsState(if (dimmed && !focused) 0.6f else 1f, tween(150), label = "dim")
+    var m = modifier.zIndex(if (focused) 1f else 0f).graphicsLayer {
+        scaleX = scale; scaleY = scale
+        alpha = dimA
+        if (glow) {
+            translationY = -liftPx * up
+            shadowElevation = 22.dp.toPx() * up
+            shape = RoundedCornerShape(10.dp)
+            ambientShadowColor = accent
+            spotShadowColor = accent
+        }
+    }
     if (fr != null) m = m.focusRequester(fr)
     Box(
         m.onFocusChanged {
+            if (focused != it.isFocused) onFocusChange?.invoke(it.isFocused)
             focused = it.isFocused
             if (!it.isFocused) {
                 // focus left (e.g. into the options menu): forget the press, its key-up goes elsewhere
@@ -145,7 +168,7 @@ fun Focusable(
             if (it.isFocused) onFocus?.invoke()
         }
             .clip(shape)
-            .border(if (focused) 3.dp else 0.dp, if (focused) accent else Color.Transparent, shape)
+            .border(if (focused) 4.dp else 0.dp, if (focused) accent else Color.Transparent, shape)
             // Before .clickable: with a long-press action, OK is handled here. A quick press (released before HOLD_OK_MS)
             // clicks on key-up; held for HOLD_OK_MS it opens the menu, and that press's key-up never clicks.
             .onPreviewKeyEvent { e ->
@@ -180,7 +203,7 @@ fun Focusable(
 }
 
 /** Unfocused, unselected chip fill: dark enough to read on bright artwork. */
-val ChipIdle = Color(0x33FFFFFF)
+val ChipIdle = Color(0xB3202028)
 
 @Composable
 fun Chip(
@@ -240,6 +263,9 @@ fun Centered(text: String) {
  * landscape cards are 70% of that tall. With [revealLabel] (default) focusing a card also scrolls its title line into
  * view, so grids and rows never leave the label under the bottom edge; Home rows pass false (they snap whole rows).
  */
+/** One row / grid of posters: the focused one stays bright, its neighbours are dimmed slightly. */
+class DimGroup { var focused by mutableStateOf<String?>(null) }
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun PosterCard(
@@ -251,21 +277,26 @@ fun PosterCard(
     onLongPress: (() -> Unit)? = null,
     posterH: Dp = tvDims().posterH,
     revealLabel: Boolean = true,
+    dim: DimGroup? = null,
     onClick: () -> Unit,
 ) {
     val h = if (landscape) posterH * 0.70f else posterH
     val w = if (landscape) h * 16f / 9f else posterW(posterH)
     val reveal = remember { BringIntoViewRequester() }
     val scope = rememberCoroutineScope()
+    val me = item.ratingKey
     Column(Modifier.width(w).bringIntoViewRequester(reveal)) {
         Focusable(
-            Modifier.size(w, h), fr, 1.06f, onClick,
+            Modifier.size(w, h), fr, 1.08f, onClick,
             onFocus = {
                 onFocus?.invoke()
                 if (revealLabel) scope.launch { delay(30); reveal.bringIntoView() }
             },
             onLongPress = onLongPress,
-        ) {
+            lift = 4.dp,
+            onFocusChange = { has -> if (dim != null) { if (has) dim.focused = me else if (dim.focused == me) dim.focused = null } },
+            dimmed = dim?.focused != null && dim.focused != me,
+        ) { f ->
             val path = if (landscape) {
                 if (item.type == "episode") item.thumb ?: item.art else item.art ?: item.thumb
             } else {
@@ -279,6 +310,23 @@ fun PosterCard(
             )
             if (item.shownProgress > 0f) {
                 Progress(item.shownProgress, Modifier.align(Alignment.BottomCenter))
+            }
+            // focused: title, year, rating, runtime (episode: SxEy and its title) over the bottom of the poster; no layout shift
+            if (f) {
+                val l1 = if (item.type == "episode") "${item.epCode} · ${item.title}" else item.label
+                val l2 = listOfNotNull(
+                    if (item.type == "episode") item.label else item.year.takeIf { it > 0 }?.toString(),
+                    item.contentRating,
+                    item.duration.takeIf { it > 0 && (item.type == "movie" || item.type == "episode") }?.let { fmtRuntime(it) },
+                ).joinToString(" · ")
+                Column(
+                    Modifier.align(Alignment.BottomStart).fillMaxWidth()
+                        .background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xE6000000))))
+                        .padding(start = 8.dp, end = 8.dp, top = 18.dp, bottom = if (item.shownProgress > 0f) 9.dp else 6.dp),
+                ) {
+                    Text(l1, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis, lineHeight = 15.sp)
+                    if (l2.isNotBlank()) Text(l2, fontSize = 11.sp, color = Color(0xFFDDDDDD), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
             }
         }
         Text(

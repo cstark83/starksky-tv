@@ -42,6 +42,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -190,8 +191,8 @@ fun SearchScreen(api: PlexApi, ov: OverseerrApi, onRequest: (Media) -> Unit, onO
                     decorationBox = { inner ->
                         Box(
                             Modifier
-                                .background(Color(0x22FFFFFF), RoundedCornerShape(10.dp))
-                                .border(if (fieldFocused) 3.dp else 0.dp, if (fieldFocused) accent else Color.Transparent, RoundedCornerShape(10.dp))
+                                .background(if (fieldFocused) accent.copy(alpha = 0.22f).compositeOver(Color(0xFF1A1A20)) else Color(0x22FFFFFF), RoundedCornerShape(10.dp))
+                                .border(if (fieldFocused) 4.dp else 0.dp, if (fieldFocused) accent else Color.Transparent, RoundedCornerShape(10.dp))
                                 .padding(horizontal = 16.dp, vertical = 12.dp),
                         ) {
                             if (query.isEmpty()) Text("Search movies and shows", color = Pal.Dim, fontSize = 24.sp)
