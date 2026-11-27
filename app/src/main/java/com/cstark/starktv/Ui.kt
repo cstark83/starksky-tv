@@ -37,6 +37,10 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.graphicsLayer
@@ -505,3 +509,47 @@ suspend fun focusSoon(fr: FocusRequester, tries: Int = 15): Boolean {
 
 /** "1 season", "3 seasons". */
 fun plural(n: Int, word: String): String = "$n $word" + if (n == 1) "" else "s"
+
+// ---------------------------------------------------------------- loading placeholders (shimmer)
+
+/** A soft light band sweeping across: for placeholder boxes while something loads. */
+@Composable
+fun Modifier.shimmer(shape: androidx.compose.ui.graphics.Shape = RoundedCornerShape(10.dp)): Modifier {
+    val t = androidx.compose.animation.core.rememberInfiniteTransition(label = "shimmer")
+    val x by t.animateFloat(
+        -1f, 2f,
+        androidx.compose.animation.core.infiniteRepeatable(tween(1300, easing = androidx.compose.animation.core.LinearEasing)),
+        label = "shimmerX",
+    )
+    return this.clip(shape).background(Pal.Card).drawWithContent {
+        drawContent()
+        val w = size.width
+        drawRect(
+            Brush.linearGradient(
+                listOf(Color.Transparent, Color(0x22FFFFFF), Color.Transparent),
+                start = androidx.compose.ui.geometry.Offset(w * x - w * 0.5f, 0f),
+                end = androidx.compose.ui.geometry.Offset(w * x + w * 0.5f, size.height),
+            ),
+        )
+    }
+}
+
+/** Placeholder rows (title bar + cards) while Home / Discover load. */
+@Composable
+fun SkeletonRows(rows: Int = 2, cardH: Dp = tvDims().posterH * 0.8f, landscapeFirst: Boolean = true) {
+    val tv = tvDims()
+    Column(Modifier.fillMaxSize().padding(top = 12.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
+        repeat(rows) { r ->
+            val land = landscapeFirst && r == 0
+            val h = if (land) cardH * 0.7f else cardH
+            val w = if (land) h * 16f / 9f else posterW(cardH)
+            Column(Modifier.padding(start = tv.side)) {
+                Box(Modifier.width(160.dp).height(16.dp).shimmer(RoundedCornerShape(4.dp)))
+                Spacer(Modifier.height(12.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    repeat(8) { Box(Modifier.size(w, h).shimmer()) }
+                }
+            }
+        }
+    }
+}

@@ -347,7 +347,11 @@ private fun DiscoverGenres(ov: OverseerrApi, onRequest: (Media) -> Unit) {
 @Composable
 private fun DiscoverRows(home: HomeData, onRequest: (Media) -> Unit) {
     val rows = home.discover
-    if (rows == null) { Centered(home.discoverError ?: "Finding things you might like…"); return }
+    if (rows == null) {
+        val e = home.discoverError
+        if (e != null) Centered(e) else SkeletonRows(rows = 2, cardH = tvDims().posterH, landscapeFirst = false)
+        return
+    }
     if (rows.isEmpty()) { Centered("Nothing to suggest yet. Watch a few things and check back."); return }
 
     val first = remember { FocusRequester() }

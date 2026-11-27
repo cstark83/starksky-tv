@@ -51,6 +51,8 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.key.Key
@@ -455,6 +457,15 @@ private fun YouTubeBrowse(onVideo: (YtVideo) -> Unit) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     if (m.loading) CircularProgressIndicator(Modifier.size(22.dp), color = Color.White, strokeWidth = 2.dp)
                     Text(m.status, fontSize = 16.sp, color = Pal.Dim)
+                }
+            }
+        }
+        if (m.loading && m.items.isEmpty()) {
+            items(8, key = { "sk$it" }) {
+                Column {
+                    Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).shimmer())
+                    Spacer(Modifier.height(8.dp))
+                    Box(Modifier.fillMaxWidth(0.8f).height(14.dp).shimmer(RoundedCornerShape(4.dp)))
                 }
             }
         }

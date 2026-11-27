@@ -3,6 +3,14 @@ package com.cstark.starktv
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.tween
 import androidx.activity.compose.setContent
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -137,7 +145,21 @@ fun App(api: PlexApi, prefs: Prefs, skipIntro: Boolean = false) {
     // Back goes to the BackHandlers above even when focus sits in a lazy row/grid (see backToBackHandlers in Ui.kt)
     val backOwner = LocalOnBackPressedDispatcherOwner.current
     Box(Modifier.fillMaxSize().backToBackHandlers { backOwner?.onBackPressedDispatcher }) {
-    when (val s = stack.last()) {
+    // 150 ms fade + small slide between screens; none into/out of anything that plays video (player, trailer, YouTube,
+    // opening), so two players are never alive at once
+    AnimatedContent(
+        targetState = stack.last(),
+        transitionSpec = {
+            fun video(x: Screen) = x is Screen.Play || x is Screen.Trailer || x is Screen.YtVideo || x is Screen.Intro
+            if (video(initialState) || video(targetState)) {
+                EnterTransition.None togetherWith ExitTransition.None
+            } else {
+                (fadeIn(tween(150)) + slideInVertically(tween(150)) { it / 40 }) togetherWith fadeOut(tween(150))
+            }
+        },
+        label = "screens",
+    ) { s ->
+    when (s) {
         is Screen.Intro -> IntroScreen(prefs.introStyle.let { if (it == INTRO_OFF) 0 else it }) {
             if (s.preview) pop() else reset(Screen.Boot)
         }
@@ -213,6 +235,7 @@ fun App(api: PlexApi, prefs: Prefs, skipIntro: Boolean = false) {
                 },
             )
         }
+    }
     }
     }
 }

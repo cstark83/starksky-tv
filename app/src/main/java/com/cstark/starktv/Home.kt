@@ -202,8 +202,19 @@ fun HeroBackground(api: PlexApi, item: Item?) {
         infiniteRepeatable(tween(40_000, easing = LinearEasing), RepeatMode.Reverse),
         label = "zoom",
     )
+    // Cross-fade only once the new backdrop is loaded (in the memory cache), and not for every poster you pass on the way:
+    // the old picture stays until the new one is ready, so it never flashes dark or pops in.
+    val ctx = LocalContext.current
+    val want = backdropPath(item)
+    var shown by remember { mutableStateOf(want) }
+    LaunchedEffect(want) {
+        if (want == null) { shown = null; return@LaunchedEffect }
+        delay(150)
+        runCatching { ctx.imageLoader.execute(ImageRequest.Builder(ctx).data(api.pic(want, 1920, 1080)).build()) }
+        shown = want
+    }
     Box(Modifier.fillMaxSize().background(Color(0xFF0A0B0E))) {
-        Crossfade(targetState = backdropPath(item), animationSpec = tween(700), label = "bg") { p ->
+        Crossfade(targetState = shown, animationSpec = tween(600), label = "bg") { p ->
             if (p != null) {
                 AsyncImage(
                     model = api.pic(p, 1920, 1080),
@@ -357,7 +368,10 @@ fun HomeScreen(
     onRequest: (Media) -> Unit,
 ) {
     val rows = home.rows
-    if (rows == null) { Centered(home.error ?: "Loading…"); return }
+    if (rows == null) {
+        if (home.error != null) Centered(home.error ?: "") else Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomStart) { SkeletonRows() }
+        return
+    }
     if (rows.isEmpty()) { Centered("Nothing here yet — add some media to Plex."); return }
 
     val first = remember { FocusRequester() }
