@@ -151,7 +151,7 @@ fun Focusable(
         if (glow) {
             translationY = -liftPx * up
             shadowElevation = 22.dp.toPx() * up
-            shape = RoundedCornerShape(10.dp)
+            this.shape = RoundedCornerShape(10.dp)
             ambientShadowColor = accent
             spotShadowColor = accent
         }
