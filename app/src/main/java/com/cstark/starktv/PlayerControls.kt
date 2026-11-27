@@ -111,7 +111,8 @@ private enum class CtlMenu { Captions, Audio, Speed }
 
 private class MenuRow(val name: String, val active: Boolean, val pick: () -> Unit)
 
-@OptIn(UnstableApi::class, ExperimentalComposeUiApi::class)
+@OptIn(UnstableApi::class)
+@kotlin.OptIn(ExperimentalComposeUiApi::class)
 @Composable
 fun PlayerControls(
     player: ExoPlayer,
@@ -402,7 +403,7 @@ private fun SeekBar(pos: Long, dur: Long, buffered: Long, fill: Color, onSeekTo:
 }
 
 /** Captions / audio / speed list: opens on the active row, full names, focused row kept in view. Back closes it. */
-@OptIn(ExperimentalComposeUiApi::class)
+@kotlin.OptIn(ExperimentalComposeUiApi::class)
 @Composable
 private fun TrackMenu(title: String, rows: List<MenuRow>, fill: Color, onClose: () -> Unit, modifier: Modifier) {
     val active = rows.indexOfFirst { it.active }.coerceAtLeast(0)
