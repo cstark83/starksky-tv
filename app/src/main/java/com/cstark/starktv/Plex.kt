@@ -90,6 +90,9 @@ data class PlayInfo(
     val creditsStart: Long = -1L,
     /** The next episode (for the "Next episode in 10s" overlay). */
     val next: Item? = null,
+    /** Plex media part id and whether Plex has video preview thumbnails (BIF, "indexes":"sd") for it. */
+    val partId: String? = null,
+    val hasPreviews: Boolean = false,
 )
 
 private fun JSONObject.str(k: String): String? =
@@ -395,7 +398,11 @@ class PlexApi(private val prefs: Prefs) {
             } catch (_: Exception) {
             }
         }
-        return PlayInfo(item, partKey, subs, introStart, introEnd, next, creditsStart, nextItem)
+        return PlayInfo(
+            item, partKey, subs, introStart, introEnd, next, creditsStart, nextItem,
+            partId = part.optString("id").ifEmpty { null },
+            hasPreviews = part.optString("indexes").split(',').contains("sd"),
+        )
     }
 
     suspend fun timeline(item: Item, state: String, posMs: Long) {
@@ -523,6 +530,17 @@ class PlexApi(private val prefs: Prefs) {
 
     fun img(path: String?, w: Int, h: Int): String? =
         path?.let { "$base/photo/:/transcode?width=$w&height=$h&minSize=1&upscale=1&url=${enc(it)}&X-Plex-Token=$srvToken" }
+
+    /** Plex video preview thumbnails (BIF file) of a media part, with the profile's server token. Null = none / error. */
+    suspend fun previewBif(partId: String): ByteArray? = withContext(Dispatchers.IO) {
+        try {
+            http.newCall(req("$base/library/parts/$partId/indexes/sd", srvToken)).execute().use { r ->
+                if (r.isSuccessful) r.body?.bytes() else null
+            }
+        } catch (e: Exception) {
+            null
+        }
+    }
 
     fun media(path: String): String =
         "$base$path${if (path.contains("?")) "&" else "?"}X-Plex-Token=$srvToken"

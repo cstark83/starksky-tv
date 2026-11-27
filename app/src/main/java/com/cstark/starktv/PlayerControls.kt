@@ -127,6 +127,8 @@ fun PlayerControls(
     log: (String) -> Unit,
     /** Trailers / YouTube: no CC or Audio button when the stream has no such tracks. */
     hideEmptyTracks: Boolean = false,
+    /** Plex preview thumbnails for the seek bar bubble (null = time only). */
+    previews: Bif? = null,
 ) {
     val ctx = LocalContext.current
     val names = remember { DefaultTrackNameProvider(ctx.resources) }
@@ -241,7 +243,7 @@ fun PlayerControls(
                 }
             }
             Spacer(Modifier.height(14.dp))
-            SeekBar(pos, dur, buffered, fill, onSeekTo, onPlayPause)
+            SeekBar(pos, dur, buffered, fill, onSeekTo, onPlayPause, previews)
         }
 
         val m = menu
@@ -342,7 +344,7 @@ private fun CtlButton(
 
 /** 6 dp bar on a dark track; focused: thicker, white ring, thumb. Left/Right preview 5% steps, seek after 1 s or OK. */
 @Composable
-private fun SeekBar(pos: Long, dur: Long, buffered: Long, fill: Color, onSeekTo: (Long) -> Unit, onPlayPause: () -> Unit) {
+private fun SeekBar(pos: Long, dur: Long, buffered: Long, fill: Color, onSeekTo: (Long) -> Unit, onPlayPause: () -> Unit, previews: Bif?) {
     var f by remember { mutableStateOf(false) }
     var scrub by remember { mutableStateOf<Long?>(null) }
     var job by remember { mutableStateOf<Job?>(null) }
@@ -397,6 +399,27 @@ private fun SeekBar(pos: Long, dur: Long, buffered: Long, fill: Color, onSeekTo:
                     Modifier.offset(x = maxWidth * p - 12.dp).size(24.dp)
                         .background(fill, CircleShape).border(3.dp, Color.White, CircleShape),
                 )
+            }
+            // scrubbing: preview picture (Plex preview thumbnails, when the server has them) + time, above the thumb
+            val sc = scrub
+            if (sc != null) {
+                val img = remember(sc / 1000) { previews?.frame(sc) }
+                val bw = if (img != null) 240.dp else 96.dp
+                val x = (maxWidth * p - bw / 2).coerceIn(0.dp, (maxWidth - bw).coerceAtLeast(0.dp))
+                Column(
+                    Modifier.offset(x = x, y = if (img != null) (-186).dp else (-54).dp).width(bw)
+                        .background(Color(0xE6000000), RoundedCornerShape(10.dp))
+                        .border(2.dp, Color.White, RoundedCornerShape(10.dp)).padding(4.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    if (img != null) {
+                        androidx.compose.foundation.Image(
+                            img, null, contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                            modifier = Modifier.fillMaxWidth().height(130.dp).clip(RoundedCornerShape(7.dp)),
+                        )
+                    }
+                    Text(clock(sc), fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.White, modifier = Modifier.padding(vertical = 2.dp))
+                }
             }
         }
         Text(clock(dur), fontSize = 20.sp, color = Color.White, fontWeight = FontWeight.Medium,

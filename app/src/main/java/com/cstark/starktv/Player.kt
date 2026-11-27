@@ -56,6 +56,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -123,6 +124,8 @@ fun PlayerScreen(
     var barFocused by remember { mutableStateOf(false) }
     var ctlMenuOpen by remember { mutableStateOf(false) }
     val playFr = remember { FocusRequester() }
+    // Plex preview thumbnails for the seek bar (only when Plex has them for this file; loaded once per item, in memory)
+    var previews by remember { mutableStateOf<Bif?>(null) }
 
     // Track memory: flags read inside the player listener (plain fields, not Compose state).
     val trk = remember { object { var programmatic = false; var userPicked = false; var applied = false } }
@@ -365,6 +368,15 @@ fun PlayerScreen(
         }
     }
 
+    LaunchedEffect(info) {
+        val i = info ?: return@LaunchedEffect
+        val pid = i.partId
+        if (!i.hasPreviews || pid == null) return@LaunchedEffect
+        delay(8_000) // after the start, so it never competes with the video for bandwidth
+        previews = withContext(Dispatchers.Default) { api.previewBif(pid)?.let { Bif.parse(it) } }
+        plog(if (previews != null) "preview thumbnails loaded" else "preview thumbnails: none / couldn't load")
+    }
+
     // Position tick (for Skip Intro and the next-episode countdown) + progress reporting every ~10s.
     LaunchedEffect(info) {
         val i = info ?: return@LaunchedEffect
@@ -595,6 +607,7 @@ fun PlayerScreen(
                 onBarFocus = { barFocused = it },
                 onMenu = { ctlMenuOpen = it; showControls() },
                 log = { plog(it) },
+                previews = previews,
             )
         }
 
